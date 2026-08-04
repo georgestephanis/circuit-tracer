@@ -28,6 +28,9 @@ interface Props {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** 0–1, applied to everything drawn over both photos. */
+  overlayOpacity: number;
+  onSetOverlayOpacity: (opacity: number) => void;
 }
 
 export function Toolbar({
@@ -51,6 +54,8 @@ export function Toolbar({
   canRedo,
   onUndo,
   onRedo,
+  overlayOpacity,
+  onSetOverlayOpacity,
 }: Props) {
   const [count, setCount] = useState(4);
 
@@ -193,6 +198,25 @@ export function Toolbar({
           </div>
         )
       )}
+
+      {/* Fade the annotations back to check them against the photo underneath.
+          A view setting, so it's always here rather than under a tool. */}
+      <div className="toolbar-group">
+        <label className="inline-field">
+          <span>Overlay</span>
+          <input
+            type="range"
+            className="opacity-slider"
+            min={0}
+            max={100}
+            step={5}
+            value={Math.round(overlayOpacity * 100)}
+            onChange={(e) => onSetOverlayOpacity(Number(e.target.value) / 100)}
+            title="Opacity of pads, traces, and vias over the photo"
+          />
+        </label>
+        <span className="export-hint">{Math.round(overlayOpacity * 100)}%</span>
+      </div>
 
       <div className="toolbar-group">
         <button type="button" onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl/Cmd+Z)">

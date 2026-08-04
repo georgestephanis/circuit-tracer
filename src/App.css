@@ -1,6 +1,9 @@
 .app {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  /* The sidebar tracks the window: a wide screen can afford to keep each item
+     on one line, and a narrow one gives the board back the space and lets the
+     items wrap instead. */
+  grid-template-columns: 1fr clamp(230px, 22vw, 400px);
   grid-template-rows: auto auto 1fr;
   gap: 16px;
   min-height: 100vh;
@@ -83,6 +86,10 @@
 
 .inline-field input {
   width: 64px;
+}
+
+.inline-field input.opacity-slider {
+  width: 110px;
 }
 
 .ground-toggle {
@@ -230,6 +237,22 @@
   opacity: 0.9;
 }
 
+/* A selected pad can be dragged to correct its position. */
+.pad-shape.draggable {
+  cursor: move;
+}
+
+/* Outline around the pad a trace click would attach to. Unlike a via, the
+   point isn't pulled to the centre — the trace meets the pad where you click,
+   so this only says "clicking here links this pad". */
+.pad-snap-target {
+  fill: none;
+  stroke: #38bdf8;
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+  opacity: 0.9;
+}
+
 /* True-scale preview of what the active tool would place. */
 .size-preview-mark {
   fill: none;
@@ -326,10 +349,13 @@
   gap: 6px;
 }
 
+/* An item is one row while it fits and wraps to a second when it doesn't, so a
+   narrow sidebar loses a line rather than clipping the end of every row. */
 .item-list li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
   border-radius: 6px;
   padding: 4px 6px;
 }
@@ -339,8 +365,10 @@
   outline: none;
 }
 
+/* The label wants ~7em; below that it drops to its own line and takes the
+   width, which is what turns a cramped item into two lines. */
 .item-list input[type='text'] {
-  flex: 1;
+  flex: 1 1 7em;
   min-width: 0;
 }
 
@@ -377,9 +405,12 @@
   gap: 8px;
 }
 
+/* The id and its dimensions are the longest part of a row, so let it wrap
+   inside itself rather than push the rest of the row out of the panel. */
 .item-id {
   cursor: pointer;
-  flex-shrink: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 13px;
   color: var(--text-muted);
 }

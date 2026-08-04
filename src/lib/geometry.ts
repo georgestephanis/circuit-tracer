@@ -1,4 +1,4 @@
-import type { FlipAxis, Point } from '../types';
+import type { FlipAxis, PadShape, Point } from '../types';
 
 /** Just the dimensions of an image or board, in pixels. */
 export interface Size {
@@ -29,6 +29,33 @@ export function pointInRect(p: Point, r: Rect): boolean {
 
 export function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/**
+ * Is `p` on this pad's copper?
+ *
+ * A round pad is the circle inscribed in its bounding box, so its corners
+ * aren't part of it. Shared by the reducer (deciding what a finished trace
+ * connects to) and the canvas (highlighting the pad a click would attach to),
+ * so what looks clickable and what actually links can't drift apart.
+ */
+export function pointInPad(p: Point, pad: Rect & { shape: PadShape }): boolean {
+  if (pad.shape !== 'round') return pointInRect(p, pad);
+  const r = pad.width / 2;
+  return distance(p, { x: pad.x + r, y: pad.y + pad.height / 2 }) <= r;
+}
+
+/**
+ * The pad a point lands on, or null.
+ *
+ * Later pads win, matching the paint order on the canvas: the one drawn on top
+ * is the one you meant to click.
+ */
+export function padAt<T extends Rect & { shape: PadShape }>(pads: T[], p: Point): T | null {
+  for (let i = pads.length - 1; i >= 0; i--) {
+    if (pointInPad(p, pads[i])) return pads[i];
+  }
+  return null;
 }
 
 /** Shortest distance from `p` to the segment `a`–`b`. */

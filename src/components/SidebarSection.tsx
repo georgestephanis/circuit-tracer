@@ -2,8 +2,11 @@ import { useState, type ReactNode } from 'react';
 
 interface Props {
   title: string;
-  /** Shown next to the title so a collapsed section still tells you what's in it. */
-  count: number;
+  /**
+   * Shown next to the title so a collapsed section still tells you what's in
+   * it. Omit for a section that isn't a list of things.
+   */
+  count?: number;
   /** Sections start open; pass false for ones that are usually noise. */
   defaultOpen?: boolean;
   children: ReactNode;
@@ -31,7 +34,7 @@ export function SidebarSection({ title, count, defaultOpen = true, children }: P
           {open ? '▾' : '▸'}
         </span>
         <h3>{title}</h3>
-        <span className="sidebar-section-count">{count}</span>
+        {count !== undefined && <span className="sidebar-section-count">{count}</span>}
       </button>
       {open && <div className="sidebar-section-body">{children}</div>}
     </div>

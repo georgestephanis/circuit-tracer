@@ -29,8 +29,14 @@ npm run build   # production build (also type-checks)
    - **Trace** — click to add points to the current path; double-click, or
      press **Enter**, to finish it. **Escape** cancels the in-progress trace,
      and "Undo point" removes the last placed point. A pending segment follows
-     the cursor so you can see where the next point lands, and clicking a via
-     or hole **snaps** the point to its centre and records the connection.
+     the cursor so you can see where the next point lands. Copper already on
+     the board is a **target, not a thing to select**, while this tool is
+     active: clicking a via or hole **snaps** the point to its centre, and
+     clicking a pad or test point starts or ends the trace exactly where you
+     clicked, outlining the pad first so you can see what you'll hit. Either
+     way the connection is recorded when the trace is finished, so drawing pad
+     → pad links the trace to both. (To *select* something on the canvas,
+     switch tools or click it in its sidebar list.)
    - **Via** — a small plated signal via. Click a spot on either image and it's
      placed on **both** sides at once. See [Vias and
      holes](#vias-and-holes).
@@ -45,10 +51,13 @@ npm run build   # production build (also type-checks)
      can be repeated into a series.
    - **SMD package** — drops both pads of a common chip footprint in one
      click. See [SMD packages](#smd-packages).
-5. Everything you place appears in a collapsible sidebar section — Traces,
-   Pads, Test points, Vias, Holes — each with a count and its own scroll area.
-   Rename items (e.g. give a trace a net name), set an exact width or diameter,
-   flag ground, or click to select. **Delete/Backspace** removes the selection.
+5. Everything you place appears in a collapsible sidebar section — Scale,
+   Traces, Pads, Test points, Vias, Holes — the lists each with a count and
+   their own scroll area. Rename items (e.g. give a trace a net name), set an
+   exact width or diameter, flag ground, or click to select.
+   **Delete/Backspace** removes the selection. The sidebar widens and narrows
+   with the window, and list rows wrap to a second line rather than clip when
+   it's narrow.
 6. Enter a board name and click **Export SVG** once both images are uploaded.
 
 Work is autosaved as you go — see [Autosave and resuming](#autosave-and-resuming).
@@ -128,6 +137,15 @@ Overlay chrome — labels, previews, the snap halo — is drawn at a constant si
 on screen rather than in image pixels, so zooming in makes the *board* bigger,
 not the annotations. Via snapping tightens as you zoom in for the same reason.
 
+The **Overlay** slider in the toolbar fades everything you've drawn — pads,
+traces, vias — from 100% down to 0%, so you can check your work against the
+photo underneath without deleting anything. It's one global setting, it applies
+to both panels, and it's a view setting only: it doesn't touch the board, the
+undo history, the autosave, or the SVG export, which always get full opacity.
+Previews and the trace you're currently drawing stay solid so you can still aim.
+At 0% the annotations also stop taking clicks, since you can't select what you
+can't see.
+
 ### Shortcuts
 
 | Key | Does |
@@ -181,12 +199,28 @@ Merging is automatic and works in both orders: place a pad over existing
 traces/vias, or draw a trace through an existing pad. Only geometry on the
 **same side** is considered.
 
+### Nudging a pad
+
+A pad that landed slightly off can be dragged into place: **select it, then drag
+it**. Selection first is deliberate — it takes a click to arm the drag, so
+brushing past a pad while placing other things can't shift it by accident. The
+pad follows the cursor, is clamped to the photo so it can't be dragged out of
+reach, and the move lands when you let go: one undo step per drag, not one per
+mouse movement.
+
+Because a pad's connections come from where it *is*, moving it **recomputes
+them** — it picks up the traces and vias it now covers and drops the ones it no
+longer does, in both directions. Dragging a pad off a trace really does
+disconnect them. Pads can't be dragged while the Trace tool is active, since a
+click there is drawing.
+
 ### Repeating a pad into a series
 
 Connector footprints are usually one pad repeated on a pitch, so you can place
 one and let the rest fill in:
 
-1. **Select** a pad (click it on the canvas or in the Pads list).
+1. **Select** a pad (click it in the Pads list, or on the canvas with any tool
+   other than Trace — while tracing, a click on a pad draws to it instead).
 2. Enter how many pads the finished series should have, then click **Repeat
    pad…**.
 3. **Click where the last pad goes.** A dashed preview of the whole series
@@ -223,7 +257,8 @@ adding a package is a one-line change.
 ## Ground
 
 Vias, holes, and pads can be flagged as **GND** with the checkbox in their
-sidebar list, or by selecting one on the canvas and pressing `G`. A grounded item is drawn in a single distinct ground color
+sidebar list, or by selecting one on the canvas (with any tool but Trace) and
+pressing `G`. A grounded item is drawn in a single distinct ground color
 whatever color it would otherwise have, with a dashed outline.
 
 Ground items are **implicitly one net**: they're all tied together without

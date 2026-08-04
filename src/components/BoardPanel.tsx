@@ -3,6 +3,7 @@ import { GROUND_COLOR, type BoardImage, type BoardState, type Point, type Side }
 import {
   type Rect,
   VIA_GRAB_FLOOR_PX,
+  padAt,
   padSeriesRects,
   pointsToPath,
   rectFromCorners,
@@ -31,12 +32,16 @@ interface Props {
   onSelectTrace: (id: string) => void;
   onSelectVia: (id: string) => void;
   onSelectPad: (id: string) => void;
+  /** Commit a finished pad drag, as a delta in this side's image pixels. */
+  onMovePad: (id: string, dx: number, dy: number) => void;
   onAlign: (side: Side) => void;
   onCyclePackage: (step: number) => void;
   onRotatePackage: () => void;
   /** Cursor position on the *other* side, so we can preview where a hole exits here. */
   otherSideHover: Point | null;
   onHoverPoint: (side: Side, point: Point | null) => void;
+  /** 0–1 opacity for everything drawn over the photo. */
+  overlayOpacity: number;
 }
 
 export function BoardPanel({
@@ -48,11 +53,13 @@ export function BoardPanel({
   onSelectTrace,
   onSelectVia,
   onSelectPad,
+  onMovePad,
   onAlign,
   onCyclePackage,
   onRotatePackage,
   otherSideHover,
   onHoverPoint,
+  overlayOpacity,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<Point | null>(null);
@@ -64,6 +71,13 @@ export function BoardPanel({
   const [view, setView] = useState<Rect | null>(null);
   /** Where a pan drag started, in image pixels, or null when not panning. */
   const panFrom = useRef<{ point: Point; view: Rect } | null>(null);
+  /**
+   * A pad being dragged: where the drag started and how far it's come. The move
+   * is only dispatched when the drag ends, so nudging a pad into place is one
+   * undo step rather than one per mouse event; until then `delta` just offsets
+   * how the pad is drawn.
+   */
+  const [padDrag, setPadDrag] = useState<{ id: string; from: Point; delta: Point } | null>(null);
   const image = state.images[side];
   const unit = state.unit;
 
@@ -153,6 +167,31 @@ export function BoardPanel({
 
   function handlePointerUp() {
     panFrom.current = null;
+    endPadDrag();
+  }
+
+  /**
+   * Begin dragging an already-selected pad. Selection first is deliberate: it
+   * takes a click to arm the drag, so brushing past a pad while placing things
+   * can't shift it by accident.
+   */
+  function startPadDrag(e: MouseEvent<SVGElement>, padId: string) {
+    if (e.button !== 0 || tracing) return;
+    if (state.selection?.kind !== 'pad' || state.selection.id !== padId) return;
+    const p = toImagePoint(e.clientX, e.clientY);
+    if (!p) return;
+    e.stopPropagation();
+    setPadDrag({ id: padId, from: p, delta: { x: 0, y: 0 } });
+  }
+
+  function endPadDrag() {
+    if (!padDrag) return;
+    // A drag that went nowhere is a plain click; the reducer ignores a zero
+    // move anyway, but not dispatching keeps it out of the undo stack.
+    if (padDrag.delta.x !== 0 || padDrag.delta.y !== 0) {
+      onMovePad(padDrag.id, padDrag.delta.x, padDrag.delta.y);
+    }
+    setPadDrag(null);
   }
 
   function handleContextMenu(e: MouseEvent<SVGSVGElement>) {
@@ -166,12 +205,15 @@ export function BoardPanel({
     const p = toImagePoint(e.clientX, e.clientY);
     if (!p) return;
     // Clicking a via while tracing pins the point to its centre, so a trace
-    // starts or ends exactly on the hole rather than near it.
-    const snapped =
-      state.tool === 'trace' ? snapVia(state.vias, side, p, scale, viewScale) : null;
+    // starts or ends exactly on the hole rather than near it. A pad is big
+    // enough to aim at, so it keeps the exact point clicked — the trace meets
+    // the pad where you put it, and the two are linked when the trace is
+    // finished because that point is inside the pad.
+    const snapped = tracing ? snapVia(state.vias, side, p, scale, viewScale) : null;
     onCanvasClick(side, snapped?.[side] ?? p);
   }
 
+  const tracing = state.tool === 'trace';
   const placingHole = state.tool === 'via' || state.tool === 'hole';
   /** Tools that place something round at a fixed default size. */
   const placingRound = placingHole || state.tool === 'testpoint';
@@ -197,8 +239,15 @@ export function BoardPanel({
       return;
     }
 
+    // A pad drag owns the pointer too, and tracks the cursor one-for-one.
+    if (padDrag) {
+      const p = toImagePoint(e.clientX, e.clientY);
+      if (!p) return;
+      setPadDrag({ ...padDrag, delta: { x: p.x - padDrag.from.x, y: p.y - padDrag.from.y } });
+      return;
+    }
+
     const drawingPad = Boolean(state.draftPad && state.draftPad.side === side);
-    const tracing = state.tool === 'trace';
     if (!drawingPad && !placingRound && !armingArray && !tracing && !placingPackage) {
       if (hover) setHover(null);
       onHoverPoint(side, null);
@@ -211,21 +260,36 @@ export function BoardPanel({
 
   function handleMouseLeave() {
     panFrom.current = null;
+    // Leaving the panel commits the drag where it stands rather than dropping
+    // it, so a pad dragged to the edge doesn't snap back.
+    endPadDrag();
     setHover(null);
     onHoverPoint(side, null);
   }
 
   const traces = state.traces.filter((t) => t.side === side);
   const pads = state.pads.filter((p) => p.side === side);
+
+  /**
+   * Everything drawn over the photo dims together, so overlapping copper fades
+   * as one shape instead of compounding. A fully transparent overlay stops
+   * taking clicks — you can't select what you can't see.
+   */
+  const overlay = {
+    opacity: overlayOpacity,
+    pointerEvents: overlayOpacity === 0 ? ('none' as const) : undefined,
+  };
   const draft = state.draftTrace && state.draftTrace.side === side ? state.draftTrace : null;
   const padDraft = state.draftPad && state.draftPad.side === side ? state.draftPad : null;
   const padPreview = padDraft && hover ? rectFromCorners(padDraft.start, hover) : null;
 
-  // While tracing: the via the cursor would snap to, and the rubber-band
-  // segment from the last placed point to wherever the trace would go next.
-  const traceSnap =
-    state.tool === 'trace' && hover ? snapVia(state.vias, side, hover, scale, viewScale) : null;
-  const pendingEnd = state.tool === 'trace' ? (traceSnap?.[side] ?? hover) : null;
+  // While tracing: the via the cursor would snap to, the pad it would attach
+  // to, and the rubber-band segment from the last placed point to wherever the
+  // trace would go next.
+  const traceSnap = tracing && hover ? snapVia(state.vias, side, hover, scale, viewScale) : null;
+  // A via on top of a pad wins — it's the smaller target and it snaps.
+  const padSnap = tracing && hover && !traceSnap ? padAt(pads, hover) : null;
+  const pendingEnd = tracing ? (traceSnap?.[side] ?? hover) : null;
   const pendingStart = draft && draft.points.length > 0 ? draft.points[draft.points.length - 1] : null;
   const seriesPreview =
     arraySource && armingArray && state.padArray && hover
@@ -314,64 +378,112 @@ export function BoardPanel({
             >
               <image href={image.src} x={0} y={0} width={image.width} height={image.height} />
 
-              {/* Pads sit under the traces so the two read as one copper shape. */}
-              {pads.map((pad) => {
-                const className =
-                  'pad-shape' +
-                  (pad.ground ? ' ground' : '') +
-                  (state.selection?.kind === 'pad' && state.selection.id === pad.id
-                    ? ' selected'
-                    : '');
-                const fill = pad.ground ? GROUND_COLOR : pad.color;
-                const select = (e: MouseEvent<SVGElement>) => {
-                  e.stopPropagation();
-                  onSelectPad(pad.id);
-                };
-                // A round pad is the circle inscribed in its bounding box.
-                return pad.shape === 'round' ? (
+              {/*
+                Pads sit under the traces so the two read as one copper shape.
+
+                While the trace tool is active nothing on the canvas takes the
+                click: a click on a pad, via, or existing trace has to reach the
+                canvas handler so it places a trace point where you clicked
+                instead of selecting what's underneath. Selection is still
+                available from the sidebar lists, and from the canvas under any
+                other tool.
+              */}
+              <g {...overlay}>
+                {pads.map((pad) => {
+                  const selected =
+                    state.selection?.kind === 'pad' && state.selection.id === pad.id;
+                  const className =
+                    'pad-shape' +
+                    (pad.ground ? ' ground' : '') +
+                    (selected ? ' selected' : '') +
+                    // A selected pad can be dragged, so it gets the move cursor.
+                    (selected && !tracing ? ' draggable' : '');
+                  const fill = pad.ground ? GROUND_COLOR : pad.color;
+                  const select = (e: MouseEvent<SVGElement>) => {
+                    e.stopPropagation();
+                    onSelectPad(pad.id);
+                  };
+                  const onMouseDown = (e: MouseEvent<SVGElement>) => startPadDrag(e, pad.id);
+                  // An in-flight drag is drawn as an offset; the real move is
+                  // dispatched on drop.
+                  const drag = padDrag?.id === pad.id ? padDrag.delta : null;
+                  const transform = drag ? `translate(${drag.x} ${drag.y})` : undefined;
+                  // A round pad is the circle inscribed in its bounding box.
+                  return pad.shape === 'round' ? (
+                    <circle
+                      key={pad.id}
+                      cx={pad.x + pad.width / 2}
+                      cy={pad.y + pad.height / 2}
+                      r={pad.width / 2}
+                      fill={fill}
+                      className={className}
+                      transform={transform}
+                      onClick={select}
+                      onMouseDown={onMouseDown}
+                      pointerEvents={tracing ? 'none' : undefined}
+                    />
+                  ) : (
+                    <rect
+                      key={pad.id}
+                      x={pad.x}
+                      y={pad.y}
+                      width={pad.width}
+                      height={pad.height}
+                      fill={fill}
+                      className={className}
+                      transform={transform}
+                      onClick={select}
+                      onMouseDown={onMouseDown}
+                      pointerEvents={tracing ? 'none' : undefined}
+                    />
+                  );
+                })}
+              </g>
+
+              {/* The pad a trace click would attach to. */}
+              {padSnap &&
+                (padSnap.shape === 'round' ? (
                   <circle
-                    key={pad.id}
-                    cx={pad.x + pad.width / 2}
-                    cy={pad.y + pad.height / 2}
-                    r={pad.width / 2}
-                    fill={fill}
-                    className={className}
-                    onClick={select}
+                    cx={padSnap.x + padSnap.width / 2}
+                    cy={padSnap.y + padSnap.height / 2}
+                    r={padSnap.width / 2 + Math.max(1, image.width * 0.002) * viewScale}
+                    className="pad-snap-target"
+                    pointerEvents="none"
                   />
                 ) : (
                   <rect
-                    key={pad.id}
-                    x={pad.x}
-                    y={pad.y}
-                    width={pad.width}
-                    height={pad.height}
-                    fill={fill}
-                    className={className}
-                    onClick={select}
+                    x={padSnap.x}
+                    y={padSnap.y}
+                    width={padSnap.width}
+                    height={padSnap.height}
+                    className="pad-snap-target"
+                    pointerEvents="none"
                   />
-                );
-              })}
+                ))}
 
-              {traces.map((t) => (
-                <path
-                  key={t.id}
-                  d={pointsToPath(t.points)}
-                  stroke={t.color}
-                  strokeWidth={traceWidthPx(t.width)}
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={
-                    state.selection?.kind === 'trace' && state.selection.id === t.id
-                      ? 'selected'
-                      : ''
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectTrace(t.id);
-                  }}
-                />
-              ))}
+              <g {...overlay}>
+                {traces.map((t) => (
+                  <path
+                    key={t.id}
+                    d={pointsToPath(t.points)}
+                    stroke={t.color}
+                    strokeWidth={traceWidthPx(t.width)}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className={
+                      state.selection?.kind === 'trace' && state.selection.id === t.id
+                        ? 'selected'
+                        : ''
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectTrace(t.id);
+                    }}
+                    pointerEvents={tracing ? 'none' : undefined}
+                  />
+                ))}
+              </g>
 
               {draft && (
                 <path
@@ -410,35 +522,38 @@ export function BoardPanel({
                 />
               )}
 
-              {state.vias.map((v) => {
-                const p = v[side];
-                if (!p) return null;
-                const linked = Boolean(v.front && v.back);
-                const r = viaRadiusPx(v.diameter);
-                return (
-                  <circle
-                    key={v.id}
-                    cx={p.x}
-                    cy={p.y}
-                    r={r}
-                    // A hole is drawn as a ring so it reads as an opening you
-                    // can see through; a via is a solid plated dot.
-                    strokeWidth={v.kind === 'hole' ? Math.max(1, r * 0.35) : 0}
-                    className={
-                      `via-marker via-marker--${v.kind}` +
-                      (linked ? ' via-marker--linked' : ' via-marker--unlinked') +
-                      (v.ground ? ' ground' : '') +
-                      (state.selection?.kind === 'via' && state.selection.id === v.id
-                        ? ' selected'
-                        : '')
-                    }
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectVia(v.id);
-                    }}
-                  />
-                );
-              })}
+              <g {...overlay}>
+                {state.vias.map((v) => {
+                  const p = v[side];
+                  if (!p) return null;
+                  const linked = Boolean(v.front && v.back);
+                  const r = viaRadiusPx(v.diameter);
+                  return (
+                    <circle
+                      key={v.id}
+                      cx={p.x}
+                      cy={p.y}
+                      r={r}
+                      // A hole is drawn as a ring so it reads as an opening you
+                      // can see through; a via is a solid plated dot.
+                      strokeWidth={v.kind === 'hole' ? Math.max(1, r * 0.35) : 0}
+                      className={
+                        `via-marker via-marker--${v.kind}` +
+                        (linked ? ' via-marker--linked' : ' via-marker--unlinked') +
+                        (v.ground ? ' ground' : '') +
+                        (state.selection?.kind === 'via' && state.selection.id === v.id
+                          ? ' selected'
+                          : '')
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectVia(v.id);
+                      }}
+                      pointerEvents={tracing ? 'none' : undefined}
+                    />
+                  );
+                })}
+              </g>
 
               {/* Rubber band from the last placed point to where the next would go. */}
               {pendingStart && pendingEnd && (

@@ -53,6 +53,10 @@ function App() {
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  // How strongly the annotations are drawn over the photos. Pure view state,
+  // like zoom: it isn't board data, so it stays out of the reducer, the undo
+  // history, the autosave, and the export — those always get the real thing.
+  const [overlayOpacity, setOverlayOpacity] = useState(1);
   /** Session keys we've already offered to restore, so a dismissal sticks. */
   const offeredKeys = useRef<Set<string>>(new Set());
 
@@ -331,6 +335,8 @@ function App() {
         canRedo={canRedo}
         onUndo={() => dispatch({ type: 'UNDO' })}
         onRedo={() => dispatch({ type: 'REDO' })}
+        overlayOpacity={overlayOpacity}
+        onSetOverlayOpacity={setOverlayOpacity}
       />
 
       <main className="board-area">
@@ -345,6 +351,7 @@ function App() {
             onSelectTrace={(id) => dispatch({ type: 'SELECT', selection: { kind: 'trace', id } })}
             onSelectVia={(id) => dispatch({ type: 'SELECT', selection: { kind: 'via', id } })}
             onSelectPad={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
+            onMovePad={(id, dx, dy) => dispatch({ type: 'MOVE_PAD', id, dx, dy })}
             onAlign={handleAlign}
             onCyclePackage={(step) => dispatch({ type: 'CYCLE_PACKAGE', step })}
             onRotatePackage={() => dispatch({ type: 'ROTATE_PACKAGE' })}
@@ -360,6 +367,7 @@ function App() {
                     : prev,
               )
             }
+            overlayOpacity={overlayOpacity}
           />
         ))}
       </main>
@@ -394,8 +402,11 @@ function App() {
             </button>
           )}
         </div>
-        <div className="sidebar-section">
-          <h3>Scale</h3>
+        {/* Scale is set once and then mostly left alone, so it collapses out of
+            the way of the lists you actually work in — but it starts open on a
+            board with no size yet, since nothing is measured correctly until
+            that's filled in. */}
+        <SidebarSection title="Scale" defaultOpen={!state.boardSize}>
           <ScalePanel
             unit={state.unit}
             boardSize={state.boardSize}
@@ -414,7 +425,7 @@ function App() {
             }
             onSetBackFlip={(flip) => dispatch({ type: 'SET_BACK_FLIP', flip })}
           />
-        </div>
+        </SidebarSection>
         <SidebarSection title="Traces" count={state.traces.length}>
           <TraceList
             traces={state.traces}

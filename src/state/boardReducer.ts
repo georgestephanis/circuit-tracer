@@ -18,6 +18,7 @@ import {
   type Rect,
   type Size,
   padSeriesRects,
+  pointInPad,
   pointInRect,
   rectFromCorners,
   snapVia,
@@ -59,6 +60,8 @@ export type Action =
   | { type: 'RENAME_TRACE'; id: string; label: string }
   | { type: 'RENAME_VIA'; id: string; label: string }
   | { type: 'RENAME_PAD'; id: string; label: string }
+  /** Nudge a pad by a delta in its own side's image pixels. */
+  | { type: 'MOVE_PAD'; id: string; dx: number; dy: number }
   | { type: 'SELECT'; selection: BoardState['selection'] }
   | { type: 'TOGGLE_TRACE_VIA'; traceId: string; viaId: string }
   | { type: 'SET_UNIT'; unit: LengthUnit }
@@ -251,9 +254,11 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       const color = TRACE_COLORS[(state.nextTraceNum - 1) % TRACE_COLORS.length];
 
       // Merge with any pad on this side that the trace runs through, so a trace
-      // drawn after its pads still ends up connected.
+      // drawn after its pads still ends up connected. Clicking a pad while
+      // tracing drops a point on it, so this is also what links the pads a
+      // trace was deliberately started and ended on.
       const touched = state.pads.filter(
-        (pad) => pad.side === draft.side && draft.points.some((p) => pointInRect(p, pad)),
+        (pad) => pad.side === draft.side && draft.points.some((p) => pointInPad(p, pad)),
       );
       const touchedIds = touched.map((p) => p.id);
 
@@ -530,6 +535,46 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         ...state,
         pads: state.pads.map((p) => (p.id === action.id ? { ...p, label: action.label } : p)),
       };
+
+    case 'MOVE_PAD': {
+      const pad = state.pads.find((p) => p.id === action.id);
+      if (!pad) return state;
+
+      // Keep the pad on the photo — a pad dragged off the edge is unreachable.
+      const image = state.images[pad.side];
+      const clamp = (v: number, max: number) => Math.max(0, Math.min(v, max));
+      const x = image ? clamp(pad.x + action.dx, image.width - pad.width) : pad.x + action.dx;
+      const y = image ? clamp(pad.y + action.dy, image.height - pad.height) : pad.y + action.dy;
+      if (x === pad.x && y === pad.y) return state;
+
+      // The pad has moved off some copper and onto other copper, so its
+      // connections are recomputed from the new position rather than carried
+      // over — and both directions of every link have to follow.
+      const rect: Rect = { x, y, width: pad.width, height: pad.height };
+      const { traces, vias } = padConnections(state, pad.side, rect);
+      const traceIds = traces.map((t) => t.id);
+      const moved: Pad = {
+        ...pad,
+        ...rect,
+        connectsTrace: traceIds,
+        connectsVia: vias.map((v) => v.id),
+      };
+
+      return {
+        ...state,
+        pads: state.pads.map((p) => (p.id === pad.id ? moved : p)),
+        traces: state.traces.map((t) => {
+          const linked = traceIds.includes(t.id);
+          if (linked === t.connectsPad.includes(pad.id)) return t;
+          return {
+            ...t,
+            connectsPad: linked
+              ? addUnique(t.connectsPad, pad.id)
+              : t.connectsPad.filter((id) => id !== pad.id),
+          };
+        }),
+      };
+    }
 
     case 'SELECT':
       return { ...state, selection: action.selection };

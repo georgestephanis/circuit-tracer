@@ -46,9 +46,12 @@ src/
 The shape to preserve:
 
 - **All board state lives in `boardReducer`.** Components hold only transient UI
-  state (hover position, zoom/pan window, a form's in-progress value). If you
-  need new board state, add it to `BoardState` and a case to the `Action`
-  union — don't reach for context or a store.
+  state (hover position, zoom/pan window, a pad drag in flight, a form's
+  in-progress value). If you need new board state, add it to `BoardState` and a
+  case to the `Action` union — don't reach for context or a store. The
+  corollary: how the board is *displayed* is not board state. `overlayOpacity`
+  lives in `App.tsx` as plain `useState` for that reason, which is what keeps it
+  out of the undo history, the autosave, and the export.
 - **`historyReducer` wraps `boardReducer`**, so undo comes free with that rule:
   anything dispatched is undoable unless listed in `TRANSPARENT` (view-only, so
   undo steps over it) or `RESETS` (clears the stack). When you add an action,
@@ -133,6 +136,11 @@ A pad lists the traces/vias it covers, *and* those traces list the pad. Any code
 that creates or deletes one side of that relationship must update the other —
 see `padConnections()` and the `connectsPad` back-linking in `PLACE_PAD_ARRAY`.
 `DELETE_SELECTED` is where deletions clean up the reverse links.
+
+`MOVE_PAD` is the case that both adds *and* removes: connections follow from
+where a pad is, so moving one recomputes them from the new rect and has to drop
+the back-links it no longer earns as well as add the new ones. A geometry change
+to a pad is a connection change — don't carry the old lists over.
 
 ### Persistence is versioned and photos are never stored
 
