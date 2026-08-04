@@ -4,7 +4,6 @@ import type { BoardImage, Point, Side } from './types';
 import { BoardPanel } from './components/BoardPanel';
 import { AlignOverlay } from './components/AlignOverlay';
 import { Toolbar } from './components/Toolbar';
-import { ViaLinkPicker } from './components/ViaLinkPicker';
 import { TraceList } from './components/TraceList';
 import { ViaList } from './components/ViaList';
 import { PadList } from './components/PadList';
@@ -30,7 +29,8 @@ const AUTOSAVE_DELAY_MS = 600;
 
 function App() {
   const [state, dispatch] = useReducer(boardReducer, initialState);
-  const [pendingVia, setPendingVia] = useState<{ side: Side; point: Point } | null>(null);
+  /** Cursor position while placing a via/hole, so the other side can preview the exit. */
+  const [holeHover, setHoleHover] = useState<{ side: Side; point: Point } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [aligning, setAligning] = useState<Side | null>(null);
   const [alignBusy, setAlignBusy] = useState(false);
@@ -57,12 +57,15 @@ function App() {
   }
 
   function handleCanvasClick(side: Side, point: Point) {
-    if (state.tool === 'trace') {
+    // An armed pad series owns the next click, whatever tool is selected.
+    if (state.padArray) {
+      dispatch({ type: 'PLACE_PAD_ARRAY', side, point });
+    } else if (state.tool === 'trace') {
       dispatch({ type: 'ADD_TRACE_POINT', side, point });
     } else if (state.tool === 'pad') {
       dispatch({ type: 'PAD_CORNER', side, point });
     } else {
-      setPendingVia({ side, point });
+      dispatch({ type: 'ADD_VIA', side, point, kind: state.tool });
     }
   }
 
@@ -70,12 +73,6 @@ function App() {
     if (state.draftTrace && state.draftTrace.side === side) {
       dispatch({ type: 'FINISH_TRACE' });
     }
-  }
-
-  function handleChooseVia(viaId: string | null) {
-    if (!pendingVia) return;
-    dispatch({ type: 'ADD_VIA', side: pendingVia.side, point: pendingVia.point, viaId });
-    setPendingVia(null);
   }
 
   function handleAlign(side: Side) {
@@ -220,8 +217,9 @@ function App() {
       if (e.key === 'Enter') {
         if (state.draftTrace) dispatch({ type: 'FINISH_TRACE' });
       } else if (e.key === 'Escape') {
-        if (pendingVia) setPendingVia(null);
-        else if (state.draftTrace || state.draftPad) dispatch({ type: 'CANCEL_DRAFT' });
+        if (state.draftTrace || state.draftPad || state.padArray) {
+          dispatch({ type: 'CANCEL_DRAFT' });
+        }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (state.selection) {
           e.preventDefault();
@@ -231,7 +229,7 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [state.draftTrace, state.draftPad, state.selection, pendingVia, aligning, alignBusy]);
+  }, [state.draftTrace, state.draftPad, state.padArray, state.selection, aligning, alignBusy]);
 
   return (
     <div className="app">
@@ -262,11 +260,14 @@ function App() {
         hasDraft={hasDraft}
         hasPadDraft={Boolean(state.draftPad)}
         hasSelection={hasSelection}
+        selectedPadId={state.selection?.kind === 'pad' ? state.selection.id : null}
+        padArrayCount={state.padArray?.count ?? null}
         onSetTool={(tool) => dispatch({ type: 'SET_TOOL', tool })}
         onFinishTrace={() => dispatch({ type: 'FINISH_TRACE' })}
         onUndoPoint={() => dispatch({ type: 'UNDO_DRAFT_POINT' })}
         onCancelDraft={() => dispatch({ type: 'CANCEL_DRAFT' })}
         onDeleteSelected={() => dispatch({ type: 'DELETE_SELECTED' })}
+        onStartPadArray={(padId, count) => dispatch({ type: 'START_PAD_ARRAY', padId, count })}
       />
 
       <main className="board-area">
@@ -283,8 +284,24 @@ function App() {
             onSelectPad={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
             onAlign={handleAlign}
             onScaleVia={(id, factor) => dispatch({ type: 'SCALE_VIA_DIAMETER', id, factor })}
-            onScaleDefaultVia={(factor) =>
-              dispatch({ type: 'SCALE_DEFAULT_VIA_DIAMETER', factor })
+            onScaleTrace={(id, factor) => dispatch({ type: 'SCALE_TRACE_WIDTH', id, factor })}
+            onScaleDefaultDiameter={(kind, factor) =>
+              dispatch({ type: 'SCALE_DEFAULT_DIAMETER', kind, factor })
+            }
+            onScaleDefaultTraceWidth={(factor) =>
+              dispatch({ type: 'SCALE_DEFAULT_TRACE_WIDTH', factor })
+            }
+            otherSideHover={holeHover && holeHover.side !== side ? holeHover.point : null}
+            // Only the side the cursor is actually on may clear the hover, so a
+            // mouseleave from the other panel can't wipe a live preview.
+            onHoverPoint={(hoverSide, point) =>
+              setHoleHover((prev) =>
+                point
+                  ? { side: hoverSide, point }
+                  : prev && prev.side === hoverSide
+                    ? null
+                    : prev,
+              )
             }
           />
         ))}
@@ -327,13 +344,14 @@ function App() {
             boardSize={state.boardSize}
             defaultTraceWidth={state.defaultTraceWidth}
             defaultViaDiameter={state.defaultViaDiameter}
+            defaultHoleDiameter={state.defaultHoleDiameter}
             onSetUnit={(unit) => dispatch({ type: 'SET_UNIT', unit })}
             onSetBoardSize={(boardSize) => dispatch({ type: 'SET_BOARD_SIZE', boardSize })}
             onSetDefaultTraceWidth={(width) =>
               dispatch({ type: 'SET_DEFAULT_TRACE_WIDTH', width })
             }
-            onSetDefaultViaDiameter={(diameter) =>
-              dispatch({ type: 'SET_DEFAULT_VIA_DIAMETER', diameter })
+            onSetDefaultDiameter={(kind, diameter) =>
+              dispatch({ type: 'SET_DEFAULT_DIAMETER', kind, diameter })
             }
           />
         </div>
@@ -360,17 +378,22 @@ function App() {
             onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
           />
         </div>
-        <div className="sidebar-section">
-          <h3>Vias</h3>
-          <ViaList
-            vias={state.vias}
-            selection={state.selection}
-            unit={state.unit}
-            onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'via', id } })}
-            onRename={(id, label) => dispatch({ type: 'RENAME_VIA', id, label })}
-            onSetDiameter={(id, diameter) => dispatch({ type: 'SET_VIA_DIAMETER', id, diameter })}
-          />
-        </div>
+        {(['via', 'hole'] as const).map((kind) => (
+          <div className="sidebar-section" key={kind}>
+            <h3>{kind === 'via' ? 'Vias' : 'Holes'}</h3>
+            <ViaList
+              vias={state.vias.filter((v) => v.kind === kind)}
+              kind={kind}
+              selection={state.selection}
+              unit={state.unit}
+              onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'via', id } })}
+              onRename={(id, label) => dispatch({ type: 'RENAME_VIA', id, label })}
+              onSetDiameter={(id, diameter) =>
+                dispatch({ type: 'SET_VIA_DIAMETER', id, diameter })
+              }
+            />
+          </div>
+        ))}
       </aside>
 
       {aligning &&
@@ -393,15 +416,6 @@ function App() {
             />
           );
         })()}
-
-      {pendingVia && (
-        <ViaLinkPicker
-          side={pendingVia.side}
-          vias={state.vias}
-          onChoose={handleChooseVia}
-          onCancel={() => setPendingVia(null)}
-        />
-      )}
     </div>
   );
 }

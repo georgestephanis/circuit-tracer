@@ -1,4 +1,4 @@
-import type { LengthUnit, PhysicalSize } from '../types';
+import type { HoleKind, LengthUnit, PhysicalSize } from '../types';
 import { ASSUMED_BOARD_WIDTH_MM, UNIT_LABELS, convertLength, formatLength } from '../lib/scale';
 import { NumberField } from './NumberField';
 
@@ -9,10 +9,11 @@ interface Props {
   boardSize: PhysicalSize | null;
   defaultTraceWidth: number;
   defaultViaDiameter: number;
+  defaultHoleDiameter: number;
   onSetUnit: (unit: LengthUnit) => void;
   onSetBoardSize: (size: PhysicalSize | null) => void;
   onSetDefaultTraceWidth: (width: number) => void;
-  onSetDefaultViaDiameter: (diameter: number) => void;
+  onSetDefaultDiameter: (kind: HoleKind, diameter: number) => void;
 }
 
 export function ScalePanel({
@@ -20,10 +21,11 @@ export function ScalePanel({
   boardSize,
   defaultTraceWidth,
   defaultViaDiameter,
+  defaultHoleDiameter,
   onSetUnit,
   onSetBoardSize,
   onSetDefaultTraceWidth,
-  onSetDefaultViaDiameter,
+  onSetDefaultDiameter,
 }: Props) {
   function setDimension(which: 'width' | 'height', value: number | undefined) {
     const current = boardSize ?? { width: 0, height: 0 };
@@ -79,7 +81,14 @@ export function ScalePanel({
           <span>Default via ⌀</span>
           <NumberField
             value={defaultViaDiameter}
-            onCommit={(v) => v !== undefined && onSetDefaultViaDiameter(v)}
+            onCommit={(v) => v !== undefined && onSetDefaultDiameter('via', v)}
+          />
+        </label>
+        <label className="field">
+          <span>Default hole ⌀</span>
+          <NumberField
+            value={defaultHoleDiameter}
+            onCommit={(v) => v !== undefined && onSetDefaultDiameter('hole', v)}
           />
         </label>
       </div>
@@ -90,8 +99,8 @@ export function ScalePanel({
           : `No board dimensions set — drawing as if the board were ${formatLength(assumed, unit)} ${UNIT_LABELS[unit]} wide. Enter the real size to scale accurately.`}
       </p>
       <p className="list-empty">
-        Scroll the wheel over a via to resize it, or over the board in Via mode to change the
-        default.
+        Scroll the wheel over a via or hole to resize it, or over bare board in Via/Hole mode to
+        change that tool's default.
       </p>
     </div>
   );

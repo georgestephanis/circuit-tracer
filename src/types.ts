@@ -43,8 +43,22 @@ export interface Trace {
   width?: number;
 }
 
+/**
+ * What a through-board opening is. Both are stored as `Via`s and connect the
+ * two sides the same way; they differ in default size and how they're drawn.
+ */
+export type HoleKind = 'via' | 'hole';
+
+/**
+ * A through-board opening — a signal via or a mounting/component hole.
+ *
+ * A via is physically one hole through the board, so it normally carries a
+ * position on both sides. `front`/`back` stay optional because re-aligning a
+ * side can leave one half without a position.
+ */
 export interface Via {
   id: string;
+  kind: HoleKind;
   label: string;
   front?: Point;
   back?: Point;
@@ -66,7 +80,7 @@ export interface Pad {
   connectsVia: string[];
 }
 
-export type Tool = 'trace' | 'via' | 'pad';
+export type Tool = 'trace' | 'via' | 'hole' | 'pad';
 
 export interface Selection {
   kind: 'trace' | 'via' | 'pad';
@@ -78,12 +92,18 @@ export interface BoardState {
   boardName: string;
   images: Record<Side, BoardImage | null>;
   traces: Trace[];
+  /** Every through-board opening, of both kinds — see `Via.kind`. */
   vias: Via[];
   pads: Pad[];
   tool: Tool;
   draftTrace: { side: Side; points: Point[] } | null;
   /** First corner of a pad being placed; the next click sets the opposite corner. */
   draftPad: { side: Side; start: Point } | null;
+  /**
+   * A pad series waiting on its end point: `count` copies of `sourceId`, evenly
+   * spaced from that pad to wherever the next click lands.
+   */
+  padArray: { sourceId: string; count: number } | null;
   selection: Selection | null;
   nextTraceNum: number;
   nextViaNum: number;
@@ -98,4 +118,6 @@ export interface BoardState {
   defaultTraceWidth: number;
   /** Default physical diameter for new vias, in `unit`. */
   defaultViaDiameter: number;
+  /** Default physical diameter for new holes, in `unit`. */
+  defaultHoleDiameter: number;
 }

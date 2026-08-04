@@ -34,7 +34,11 @@ function renderVia(v: Via, side: Side, scale: number): string {
   const p = v[side];
   if (!p) return '';
   const radius = Math.max(1, (v.diameter / 2) * scale);
-  return `<circle id="${v.id}-${side}" class="via" data-via-id="${v.id}" data-side="${side}"${labelAttr(v.label)} data-diameter="${num(v.diameter)}" cx="${p.x}" cy="${p.y}" r="${num(radius)}" fill="#c0c0c0" stroke="#333" stroke-width="${num(Math.max(1, radius * 0.2))}" />`;
+  // A hole is drawn as an open ring; a via as a filled plated dot.
+  const isHole = v.kind === 'hole';
+  const fill = isHole ? '#1a1a1a' : '#c0c0c0';
+  const strokeWidth = Math.max(1, radius * (isHole ? 0.35 : 0.2));
+  return `<circle id="${v.id}-${side}" class="via via--${v.kind}" data-via-id="${v.id}" data-kind="${v.kind}" data-side="${side}"${labelAttr(v.label)} data-diameter="${num(v.diameter)}" cx="${p.x}" cy="${p.y}" r="${num(radius)}" fill="${fill}" stroke="${isHole ? '#c0c0c0' : '#333'}" stroke-width="${num(strokeWidth)}" />`;
 }
 
 function renderPad(pad: Pad, scale: number): string {
