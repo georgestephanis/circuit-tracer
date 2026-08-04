@@ -1,8 +1,8 @@
 # Circuit Board Tracer
 
 A browser-only tool for manually digitizing a two-sided circuit board: upload
-front/back photos, trace copper paths on each side by clicking points, mark
-vias/holes that connect the two sides, and export everything as a single
+front/back photos, trace copper paths on each side by clicking points, mark the
+vias and holes that pass through the board, and export everything as a single
 self-contained SVG that other software can parse.
 
 Everything runs client-side — images never leave the browser except inside
@@ -29,19 +29,18 @@ npm run build   # production build (also type-checks)
    - **Trace** — click to add points to the current path; double-click, or
      press **Enter**, to finish it. **Escape** cancels the in-progress trace,
      and "Undo point" removes the last placed point.
-   - **Via / Hole** — click a spot on either image to place a via. You'll be
-     asked whether this is a **new via** or should link to an **existing
-     unlinked via** placed on the other side. Two vias sharing an ID are
-     considered the same physical hole connecting front and back.
-     **Scroll the wheel** over a via to resize it (it's one physical hole, so
-     both sides resize together), or over the board in Via mode to change the
-     default size for new vias.
+   - **Via** — a small plated signal via. Click a spot on either image and it's
+     placed on **both** sides at once. See [Vias and
+     holes](#vias-and-holes).
+   - **Hole** — the same thing at a standard through-hole size, for component
+     leads and mounting holes. Drawn as an open ring rather than a solid dot.
    - **Pad** — click two opposite corners to place a rectangular pad. A live
      preview follows the cursor after the first click; **Escape** cancels.
-     Pads merge with the copper they cover — see [Pads](#pads).
-5. Traces, pads and vias appear in the sidebar lists, where you can rename them
-   (e.g. give a trace a net name), set an exact width/diameter, or click to
-   select them. **Delete/Backspace** removes the selected item.
+     Pads merge with the copper they cover, and a single pad can be repeated
+     into an evenly spaced series — see [Pads](#pads).
+5. Traces, pads, vias and holes appear in the sidebar lists, where you can
+   rename them (e.g. give a trace a net name), set an exact width/diameter, or
+   click to select them. **Delete/Backspace** removes the selected item.
 6. Enter a board name and click **Export SVG** once both images are uploaded.
 
 Work is autosaved as you go — see [Autosave and resuming](#autosave-and-resuming).
@@ -61,8 +60,60 @@ not pixels, so they stay meaningful regardless of photo resolution.
   nothing renders at an absurd size. The Scale panel says which case you're in.
 - **Default trace width** applies to new traces; override individual traces
   with the width box in the Traces list (leave it blank to follow the default).
-- **Default via ⌀** applies to new vias; individual vias are set by scrolling
-  over them or typing in the Vias list.
+- **Default via ⌀** and **Default hole ⌀** apply to newly placed vias and
+  holes respectively; individual ones are set by scrolling over them or typing
+  in their sidebar list.
+
+All three defaults can also be nudged by scrolling over bare board with that
+tool active — see [Scroll-wheel sizing](#scroll-wheel-sizing).
+
+## Vias and holes
+
+Both tools mark the same thing — a drilled opening that passes **through** the
+board — and differ only in default size and how they're drawn:
+
+| | Default ⌀ | Drawn as |
+| --- | --- | --- |
+| **Via** | 0.4 mm | solid plated dot |
+| **Hole** | 1 mm | open ring |
+
+Neither default is binding: resize any individual one with the scroll wheel or
+the diameter box in its sidebar list, and change the defaults in the Scale
+section or by scrolling over bare board with that tool active.
+
+### Placement goes through the board
+
+A drill goes all the way through, so **clicking on one side also places the
+opening where it emerges on the other**. While you hover with either tool, the
+opposite panel shows a dashed ghost of where it would come out. There is no
+linking step — every via and hole is created as one object with a position on
+both sides.
+
+The exit position is derived by mirroring across the board's vertical axis
+(`x → boardWidth - x`), which assumes **the back photo was taken by flipping the
+board left-to-right**. If you flipped it top-to-bottom instead, the mirrored
+positions will be wrong; the mapping lives in one place, `throughBoard()` in
+`src/lib/geometry.ts`.
+
+A list entry reads *(both sides)* normally, or *(one side)* if it lost its other
+half — which only happens if the board width wasn't known yet when it was
+placed (no image loaded and no alignment done).
+
+## Scroll-wheel sizing
+
+The wheel resizes whatever is under the cursor, and shows the resulting
+dimension next to the pointer for about a second:
+
+- **Over a via or hole** — resizes it. It's one physical hole, so both sides
+  change together.
+- **Over a trace** — resizes that trace's width. A trace that was following the
+  board default gets pinned to its own width the moment you size it by hand.
+- **Over bare board** — resizes the *default* for the active tool (trace, via,
+  or hole), which applies to everything you place next. The readout says
+  "New via: …" so you can tell the two cases apart.
+
+Sizes are clamped to a sane minimum, and the readout shows the clamped value —
+it never displays a size the board won't actually accept.
 
 ## Pads
 
@@ -79,6 +130,23 @@ they **merge with the copper they cover** in two senses:
 Merging is automatic and works in both orders: place a pad over existing
 traces/vias, or draw a trace through an existing pad. Only geometry on the
 **same side** is considered.
+
+### Repeating a pad into a series
+
+Connector footprints are usually one pad repeated on a pitch, so you can place
+one and let the rest fill in:
+
+1. **Select** a pad (click it on the canvas or in the Pads list).
+2. Enter how many pads the finished series should have, then click **Repeat
+   pad…**.
+3. **Click where the last pad goes.** A dashed preview of the whole series
+   follows the cursor; **Escape** cancels.
+
+The selected pad is #1 and your click is #N, so the copies fill the N−1 evenly
+spaced positions between them, endpoint included. Copies keep the source's size
+and color — a series is one connector — and each one merges with any trace or
+via it lands on, exactly like a hand-drawn pad. The series runs along one side;
+a click on the opposite panel is ignored rather than placing pads you can't see.
 
 ## Aligning a side
 
@@ -102,11 +170,13 @@ Notes:
 - **The original photo is kept.** Re-entering align mode shows the untouched
   upload with your previous corner picks prefilled, so you can nudge them and
   re-warp from the original rather than warping an already-warped image.
-- **Re-aligning clears that side's work.** Because the corrected image is a
-  new pixel space, re-aligning removes that side's traces and that side's half
-  of every via (a via placed only on that side is removed entirely). You're
-  asked to confirm first if there's anything to lose. Align both sides before
-  you start tracing.
+- **Re-aligning clears that side's traces and pads.** They were drawn in the
+  old pixel space, so they no longer line up. You're asked to confirm first if
+  there's anything to lose. Align both sides before you start tracing.
+- **Vias and holes survive a re-align.** Because they pass through the board,
+  each one's position on the re-aligned side is re-derived by mirroring its
+  position on the other side into the new pixel space. Only an opening with
+  nothing left on either side is dropped.
 
 ## Autosave and resuming
 
@@ -136,6 +206,10 @@ Other behavior worth knowing:
 - The 8 most recent sessions are kept; older ones are evicted. If storage is
   full or unavailable, a message appears and editing continues normally —
   autosave is a convenience, and **Export SVG** remains the durable artifact.
+- Saved sessions carry a schema version, and a session written by an
+  incompatible build is **discarded rather than migrated**. Splitting vias and
+  holes bumped the schema to v2, so sessions saved before that are gone — a v1
+  via records no `kind`, and guessing one seemed worse than starting clean.
 
 ## Exported SVG schema
 
@@ -153,15 +227,19 @@ The export is a single `<svg>` containing two side-by-side groups:
           data-width="5" data-height="4" x="270" y="80" width="50" height="40" fill="…" />
     <path id="trace-front-1" class="trace" data-side="front" data-label="GND"
           data-connects="pad-front-1" data-width="0.25" d="M …" stroke="…" stroke-width="2.5" />
-    <circle id="via-1-front" class="via" data-via-id="via-1" data-side="front"
-            data-diameter="0.8" cx="290" cy="100" r="4" />
+    <circle id="via-1-front" class="via via--via" data-via-id="via-1" data-kind="via"
+            data-side="front" data-diameter="0.4" cx="290" cy="100" r="2" />
+    <circle id="hole-2-front" class="via via--hole" data-via-id="hole-2" data-kind="hole"
+            data-side="front" data-diameter="1" cx="60" cy="40" r="5" />
   </g>
 
   <g data-side="back" data-px-per-unit="10" transform="translate({front.width + 40}, 0)">
     <image href="data:image/...;base64,..." x="0" y="0" width="…" height="…" />
     <path id="trace-back-1" class="trace" data-side="back" data-width="0.25" d="M …" stroke="…" />
-    <circle id="via-1-back" class="via" data-via-id="via-1" data-side="back"
-            data-diameter="0.8" cx="290" cy="100" r="4" />
+    <circle id="via-1-back" class="via via--via" data-via-id="via-1" data-kind="via"
+            data-side="back" data-diameter="0.4" cx="110" cy="100" r="2" />
+    <circle id="hole-2-back" class="via via--hole" data-via-id="hole-2" data-kind="hole"
+            data-side="back" data-diameter="1" cx="340" cy="40" r="5" />
   </g>
 </svg>
 ```
@@ -203,15 +281,22 @@ Notes for parsers:
   the pad, so you can traverse from either end.
 - Pads are emitted **before** traces within a group, so painting them in
   document order renders trace-into-pad as one continuous copper shape.
-- Vias are `<circle class="via">` elements. Each physical via produces **up
-  to two** `<circle>` elements (one per side it was placed on), sharing the
-  same `data-via-id` but with side-qualified, DOM-unique `id`s
-  (`{via-id}-front` / `{via-id}-back`). To find both halves of a via,
+- Vias and holes are both `<circle class="via">` elements, distinguished by
+  `data-kind="via"` or `data-kind="hole"` (mirrored in a `via--{kind}` class).
+  The two kinds are the same construct — a through-board opening — and differ
+  only in typical size and presentation: a via is filled, a hole is drawn as a
+  ring with a heavier stroke. Element `id`s are prefixed to match
+  (`via-1-front`, `hole-2-back`).
+- Each physical opening produces **up to two** `<circle>` elements (one per
+  side), sharing the same `data-via-id` but with side-qualified, DOM-unique
+  `id`s (`{via-id}-front` / `{via-id}-back`). To find both halves,
   `querySelectorAll('[data-via-id="via-1"]')` rather than relying on `id`.
-  A via with only one `<circle>` in the document was never linked to the
-  other side.
+  Because placement is through-board, both halves are normally present; a
+  single `<circle>` means the other side's position was lost or never known.
+- The two halves are **mirrored in x** within their groups (front `cx` +
+  back `cx` ≈ the image width), not equal. See [Vias and
+  holes](#vias-and-holes) for the flip convention that implies.
 - `data-label` on a via or pad element is present only if the user gave it a
   label.
-- `data-diameter` on a via `<circle>` is its physical diameter; `r` is half of
-  that in pixels. Both `<circle>` elements of a linked via always carry the
-  same `data-diameter`.
+- `data-diameter` on a `<circle>` is its physical diameter; `r` is half of that
+  in pixels. Both halves always carry the same `data-diameter`.

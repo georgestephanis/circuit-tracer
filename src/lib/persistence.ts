@@ -1,7 +1,10 @@
 import type { BoardState, LengthUnit, Pad, PhysicalSize, Point, Side, Trace, Via } from '../types';
 
 const STORAGE_KEY = 'circuit-tracer/sessions/v1';
-const SCHEMA_VERSION = 1;
+// v2 split vias and holes: every via carries a `kind`, and holes have their own
+// default diameter. v1 sessions have no way to say which is which, so they're
+// dropped by the version filter in readAll() rather than guessed at.
+const SCHEMA_VERSION = 2;
 /** How many boards' worth of work to keep before evicting the oldest. */
 const MAX_SESSIONS = 8;
 
@@ -35,6 +38,7 @@ export interface SavedSession {
   boardSize: PhysicalSize | null;
   defaultTraceWidth: number;
   defaultViaDiameter: number;
+  defaultHoleDiameter: number;
   alignment: Partial<Record<Side, SavedAlignment>>;
 }
 
@@ -139,6 +143,7 @@ export function snapshotFromState(state: BoardState): SavedSession {
     boardSize: state.boardSize,
     defaultTraceWidth: state.defaultTraceWidth,
     defaultViaDiameter: state.defaultViaDiameter,
+    defaultHoleDiameter: state.defaultHoleDiameter,
     alignment,
   };
 }

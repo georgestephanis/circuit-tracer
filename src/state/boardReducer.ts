@@ -1,6 +1,7 @@
 import type {
   BoardImage,
   BoardState,
+  HoleKind,
   LengthUnit,
   Pad,
   PhysicalSize,
@@ -9,8 +10,15 @@ import type {
   Side,
   Tool,
   Trace,
+  Via,
 } from '../types';
-import { pointInRect, rectFromCorners } from '../lib/geometry';
+import {
+  type Rect,
+  padSeriesRects,
+  pointInRect,
+  rectFromCorners,
+  throughBoard,
+} from '../lib/geometry';
 import { clampLength, convertLength } from '../lib/scale';
 import type { SavedSession } from '../lib/persistence';
 
@@ -30,8 +38,11 @@ export type Action =
   | { type: 'FINISH_TRACE' }
   | { type: 'CANCEL_DRAFT' }
   | { type: 'UNDO_DRAFT_POINT' }
-  | { type: 'ADD_VIA'; side: Side; point: Point; viaId: string | null }
+  | { type: 'ADD_VIA'; side: Side; point: Point; kind: HoleKind }
   | { type: 'PAD_CORNER'; side: Side; point: Point }
+  /** Arm a pad series off an existing pad; the next canvas click ends it. */
+  | { type: 'START_PAD_ARRAY'; padId: string; count: number }
+  | { type: 'PLACE_PAD_ARRAY'; side: Side; point: Point }
   | { type: 'DELETE_SELECTED' }
   | { type: 'RENAME_TRACE'; id: string; label: string }
   | { type: 'RENAME_VIA'; id: string; label: string }
@@ -41,12 +52,14 @@ export type Action =
   | { type: 'SET_UNIT'; unit: LengthUnit }
   | { type: 'SET_BOARD_SIZE'; boardSize: PhysicalSize | null }
   | { type: 'SET_DEFAULT_TRACE_WIDTH'; width: number }
-  | { type: 'SET_DEFAULT_VIA_DIAMETER'; diameter: number }
+  | { type: 'SET_DEFAULT_DIAMETER'; kind: HoleKind; diameter: number }
   | { type: 'SET_TRACE_WIDTH'; id: string; width: number | undefined }
   | { type: 'SET_VIA_DIAMETER'; id: string; diameter: number }
   /** Multiplicative resize, used by scroll-wheel sizing. */
   | { type: 'SCALE_VIA_DIAMETER'; id: string; factor: number }
-  | { type: 'SCALE_DEFAULT_VIA_DIAMETER'; factor: number }
+  | { type: 'SCALE_TRACE_WIDTH'; id: string; factor: number }
+  | { type: 'SCALE_DEFAULT_TRACE_WIDTH'; factor: number }
+  | { type: 'SCALE_DEFAULT_DIAMETER'; kind: HoleKind; factor: number }
   | { type: 'SET_BOARD_NAME'; boardName: string }
   | { type: 'RESTORE_SESSION'; session: SavedSession; images: Record<Side, BoardImage | null> }
   | { type: 'RESET_BOARD' };
@@ -65,6 +78,7 @@ export const initialState: BoardState = {
   tool: 'trace',
   draftTrace: null,
   draftPad: null,
+  padArray: null,
   selection: null,
   nextTraceNum: 1,
   nextViaNum: 1,
@@ -73,8 +87,16 @@ export const initialState: BoardState = {
   unit: 'mm',
   boardSize: null,
   defaultTraceWidth: 0.25,
-  defaultViaDiameter: 0.8,
+  // A signal via is a small drilled dot; a component/mounting hole is roughly a
+  // standard 1 mm through-hole. Both are editable per-item and per-board.
+  defaultViaDiameter: 0.4,
+  defaultHoleDiameter: 1,
 };
+
+/** Where the board's width lives, for mirroring a point through to the other side. */
+function boardWidthPx(state: BoardState, side: Side): number | null {
+  return state.alignedSize?.width ?? state.images[side]?.width ?? null;
+}
 
 /** Drop a selection that no longer points at anything that exists. */
 function pruneSelection(state: BoardState, next: Partial<BoardState>): BoardState['selection'] {
@@ -96,6 +118,22 @@ function addUnique(list: string[], id: string): string[] {
   return list.includes(id) ? list : [...list, id];
 }
 
+/**
+ * The copper a new pad at `rect` sits on — traces on this side with a point
+ * inside it, and vias/holes placed on this side inside it. A pad merges with
+ * whatever it covers so the union reads as one continuous shape.
+ */
+function padConnections(state: BoardState, side: Side, rect: Rect) {
+  const traces = state.traces.filter(
+    (t) => t.side === side && t.points.some((p) => pointInRect(p, rect)),
+  );
+  const vias = state.vias.filter((v) => {
+    const p = v[side];
+    return p ? pointInRect(p, rect) : false;
+  });
+  return { traces, vias };
+}
+
 export function boardReducer(state: BoardState, action: Action): BoardState {
   switch (action.type) {
     case 'LOAD_IMAGE':
@@ -109,13 +147,19 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       const image: BoardImage = { src: correctedSrc, width, height, raw, corners };
 
       // The corrected image is a new pixel space, so anything already drawn on
-      // this side no longer lines up: drop this side's traces and pads, and drop
-      // this side's half of every via (removing the via entirely if that leaves
-      // it with no position on either side).
+      // this side no longer lines up: drop this side's traces and pads. Vias
+      // survive — this side's half is re-derived by mirroring the other side's
+      // position into the new space, and only a via with nothing left on either
+      // side is dropped.
       const traces = state.traces.filter((t) => t.side !== side);
       const pads = state.pads.filter((p) => p.side !== side);
+      const other: Side = side === 'front' ? 'back' : 'front';
       const vias = state.vias
-        .map((v) => ({ ...v, [side]: undefined }))
+        .map((v) => {
+          const kept = v[other];
+          const rebuilt = kept ? throughBoard(kept, width) : undefined;
+          return side === 'front' ? { ...v, front: rebuilt } : { ...v, back: rebuilt };
+        })
         .filter((v) => v.front || v.back);
 
       const keptTraceIds = new Set(traces.map((t) => t.id));
@@ -144,11 +188,13 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         selection: pruneSelection(state, next),
         draftTrace: state.draftTrace?.side === side ? null : state.draftTrace,
         draftPad: state.draftPad?.side === side ? null : state.draftPad,
+        // This side's pads are gone, so any series armed off one of them is too.
+        padArray: null,
       };
     }
 
     case 'SET_TOOL':
-      return { ...state, tool: action.tool, draftTrace: null, draftPad: null };
+      return { ...state, tool: action.tool, draftTrace: null, draftPad: null, padArray: null };
 
     case 'ADD_TRACE_POINT': {
       const draft = state.draftTrace;
@@ -172,7 +218,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
     }
 
     case 'CANCEL_DRAFT':
-      return { ...state, draftTrace: null, draftPad: null };
+      return { ...state, draftTrace: null, draftPad: null, padArray: null };
 
     case 'FINISH_TRACE': {
       const draft = state.draftTrace;
@@ -211,21 +257,26 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
     }
 
     case 'ADD_VIA': {
-      if (action.viaId) {
-        return {
-          ...state,
-          vias: state.vias.map((v) =>
-            v.id === action.viaId ? { ...v, [action.side]: action.point } : v,
-          ),
-        };
-      }
-      const id = `via-${state.nextViaNum}`;
+      const { side, point, kind } = action;
+
+      // One drill goes all the way through the board, so placing on one side
+      // also places where it emerges on the other. If we don't know the board
+      // width yet there's nothing to mirror about, so only this side is placed.
+      const width = boardWidthPx(state, side);
+      const other = width === null ? undefined : throughBoard(point, width);
+
+      const via: Via = {
+        id: `${kind}-${state.nextViaNum}`,
+        kind,
+        label: '',
+        diameter: kind === 'hole' ? state.defaultHoleDiameter : state.defaultViaDiameter,
+        front: side === 'front' ? point : other,
+        back: side === 'back' ? point : other,
+      };
+
       return {
         ...state,
-        vias: [
-          ...state.vias,
-          { id, label: '', diameter: state.defaultViaDiameter, [action.side]: action.point },
-        ],
+        vias: [...state.vias, via],
         nextViaNum: state.nextViaNum + 1,
       };
     }
@@ -243,16 +294,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       }
 
       const id = `pad-${action.side}-${state.nextPadNum}`;
-
-      // A pad merges with whatever copper it covers: traces on this side with a
-      // point inside it, and vias placed on this side inside it.
-      const touchedTraces = state.traces.filter(
-        (t) => t.side === action.side && t.points.some((p) => pointInRect(p, rect)),
-      );
-      const touchedVias = state.vias.filter((v) => {
-        const p = v[action.side];
-        return p ? pointInRect(p, rect) : false;
-      });
+      const { traces: touchedTraces, vias: touchedVias } = padConnections(state, action.side, rect);
 
       const pad: Pad = {
         id,
@@ -276,6 +318,66 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         ),
         nextPadNum: state.nextPadNum + 1,
         draftPad: null,
+      };
+    }
+
+    case 'START_PAD_ARRAY': {
+      const source = state.pads.find((p) => p.id === action.padId);
+      if (!source || action.count < 2) return state;
+      return {
+        ...state,
+        padArray: { sourceId: action.padId, count: Math.floor(action.count) },
+        draftTrace: null,
+        draftPad: null,
+      };
+    }
+
+    case 'PLACE_PAD_ARRAY': {
+      const spec = state.padArray;
+      if (!spec) return state;
+      const source = state.pads.find((p) => p.id === spec.sourceId);
+      // The series runs along one side, so a click on the other side is ignored
+      // rather than silently placing pads where they can't be seen.
+      if (!source || source.side !== action.side) return state;
+
+      const rects = padSeriesRects(source, action.point, spec.count);
+      if (rects.length === 0) return { ...state, padArray: null };
+
+      const created: Pad[] = [];
+      let num = state.nextPadNum;
+
+      for (const rect of rects) {
+        const { traces, vias } = padConnections(state, action.side, rect);
+        created.push({
+          id: `pad-${action.side}-${num}`,
+          side: action.side,
+          ...rect,
+          label: '',
+          // A series is one connector, so the copies keep the source's color.
+          color: source.color,
+          connectsTrace: traces.map((t) => t.id),
+          connectsVia: vias.map((v) => v.id),
+        });
+        num++;
+      }
+
+      // Mirror each new pad's trace links back onto the traces themselves.
+      const padsByTrace = new Map<string, string[]>();
+      for (const pad of created) {
+        for (const traceId of pad.connectsTrace) {
+          padsByTrace.set(traceId, [...(padsByTrace.get(traceId) ?? []), pad.id]);
+        }
+      }
+
+      return {
+        ...state,
+        pads: [...state.pads, ...created],
+        traces: state.traces.map((t) => {
+          const ids = padsByTrace.get(t.id);
+          return ids ? { ...t, connectsPad: ids.reduce(addUnique, t.connectsPad) } : t;
+        }),
+        nextPadNum: num,
+        padArray: null,
       };
     }
 
@@ -330,6 +432,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
           : null,
         defaultTraceWidth: conv(state.defaultTraceWidth),
         defaultViaDiameter: conv(state.defaultViaDiameter),
+        defaultHoleDiameter: conv(state.defaultHoleDiameter),
         traces: state.traces.map((t) =>
           t.width === undefined ? t : { ...t, width: conv(t.width) },
         ),
@@ -343,8 +446,12 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
     case 'SET_DEFAULT_TRACE_WIDTH':
       return { ...state, defaultTraceWidth: clampLength(action.width, state.unit) };
 
-    case 'SET_DEFAULT_VIA_DIAMETER':
-      return { ...state, defaultViaDiameter: clampLength(action.diameter, state.unit) };
+    case 'SET_DEFAULT_DIAMETER': {
+      const value = clampLength(action.diameter, state.unit);
+      return action.kind === 'hole'
+        ? { ...state, defaultHoleDiameter: value }
+        : { ...state, defaultViaDiameter: value };
+    }
 
     case 'SET_TRACE_WIDTH':
       return {
@@ -378,11 +485,38 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         ),
       };
 
-    case 'SCALE_DEFAULT_VIA_DIAMETER':
+    case 'SCALE_TRACE_WIDTH':
       return {
         ...state,
-        defaultViaDiameter: clampLength(state.defaultViaDiameter * action.factor, state.unit),
+        traces: state.traces.map((t) =>
+          t.id === action.id
+            ? {
+                ...t,
+                // A trace on the board default gets pinned to its own width the
+                // moment you size it by hand.
+                width: clampLength(
+                  (t.width ?? state.defaultTraceWidth) * action.factor,
+                  state.unit,
+                ),
+              }
+            : t,
+        ),
       };
+
+    case 'SCALE_DEFAULT_TRACE_WIDTH':
+      return {
+        ...state,
+        defaultTraceWidth: clampLength(state.defaultTraceWidth * action.factor, state.unit),
+      };
+
+    case 'SCALE_DEFAULT_DIAMETER': {
+      const current =
+        action.kind === 'hole' ? state.defaultHoleDiameter : state.defaultViaDiameter;
+      const value = clampLength(current * action.factor, state.unit);
+      return action.kind === 'hole'
+        ? { ...state, defaultHoleDiameter: value }
+        : { ...state, defaultViaDiameter: value };
+    }
 
     case 'SET_BOARD_NAME':
       return { ...state, boardName: action.boardName };
@@ -404,6 +538,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         boardSize: session.boardSize,
         defaultTraceWidth: session.defaultTraceWidth,
         defaultViaDiameter: session.defaultViaDiameter,
+        defaultHoleDiameter: session.defaultHoleDiameter,
         tool: state.tool,
       };
     }
@@ -435,6 +570,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
             ...t,
             connectsPad: t.connectsPad.filter((p) => p !== id),
           })),
+          padArray: state.padArray?.sourceId === id ? null : state.padArray,
           selection: null,
         };
       }
