@@ -64,6 +64,10 @@ function App() {
       dispatch({ type: 'ADD_TRACE_POINT', side, point });
     } else if (state.tool === 'pad') {
       dispatch({ type: 'PAD_CORNER', side, point });
+    } else if (state.tool === 'testpoint') {
+      dispatch({ type: 'ADD_TEST_POINT', side, point });
+    } else if (state.tool === 'package') {
+      dispatch({ type: 'ADD_PACKAGE', side, point });
     } else {
       dispatch({ type: 'ADD_VIA', side, point, kind: state.tool });
     }
@@ -262,6 +266,12 @@ function App() {
         hasSelection={hasSelection}
         selectedPadId={state.selection?.kind === 'pad' ? state.selection.id : null}
         padArrayCount={state.padArray?.count ?? null}
+        packageIndex={state.packageIndex}
+        packageRotated={state.packageRotated}
+        onSelectPackage={(index) =>
+          dispatch({ type: 'CYCLE_PACKAGE', step: index - state.packageIndex })
+        }
+        onRotatePackage={() => dispatch({ type: 'ROTATE_PACKAGE' })}
         onSetTool={(tool) => dispatch({ type: 'SET_TOOL', tool })}
         onFinishTrace={() => dispatch({ type: 'FINISH_TRACE' })}
         onUndoPoint={() => dispatch({ type: 'UNDO_DRAFT_POINT' })}
@@ -283,14 +293,8 @@ function App() {
             onSelectVia={(id) => dispatch({ type: 'SELECT', selection: { kind: 'via', id } })}
             onSelectPad={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
             onAlign={handleAlign}
-            onScaleVia={(id, factor) => dispatch({ type: 'SCALE_VIA_DIAMETER', id, factor })}
-            onScaleTrace={(id, factor) => dispatch({ type: 'SCALE_TRACE_WIDTH', id, factor })}
-            onScaleDefaultDiameter={(kind, factor) =>
-              dispatch({ type: 'SCALE_DEFAULT_DIAMETER', kind, factor })
-            }
-            onScaleDefaultTraceWidth={(factor) =>
-              dispatch({ type: 'SCALE_DEFAULT_TRACE_WIDTH', factor })
-            }
+            onCyclePackage={(step) => dispatch({ type: 'CYCLE_PACKAGE', step })}
+            onRotatePackage={() => dispatch({ type: 'ROTATE_PACKAGE' })}
             otherSideHover={holeHover && holeHover.side !== side ? holeHover.point : null}
             // Only the side the cursor is actually on may clear the hover, so a
             // mouseleave from the other panel can't wipe a live preview.
@@ -345,6 +349,7 @@ function App() {
             defaultTraceWidth={state.defaultTraceWidth}
             defaultViaDiameter={state.defaultViaDiameter}
             defaultHoleDiameter={state.defaultHoleDiameter}
+            defaultTestPointDiameter={state.defaultTestPointDiameter}
             onSetUnit={(unit) => dispatch({ type: 'SET_UNIT', unit })}
             onSetBoardSize={(boardSize) => dispatch({ type: 'SET_BOARD_SIZE', boardSize })}
             onSetDefaultTraceWidth={(width) =>
@@ -376,6 +381,8 @@ function App() {
             scaleFor={(pad) => pxPerUnit(state.images[pad.side], state.boardSize, state.unit)}
             onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
             onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
+            onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
+            onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'pad', id })}
           />
         </div>
         {(['via', 'hole'] as const).map((kind) => (
@@ -391,6 +398,7 @@ function App() {
               onSetDiameter={(id, diameter) =>
                 dispatch({ type: 'SET_VIA_DIAMETER', id, diameter })
               }
+              onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'via', id })}
             />
           </div>
         ))}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Tool } from '../types';
+import { SMD_PACKAGES } from '../lib/packages';
 
 /** Series shorter than this aren't a series; the reducer enforces it too. */
 const MIN_SERIES = 2;
@@ -13,6 +14,10 @@ interface Props {
   selectedPadId: string | null;
   /** How many pads the armed series will end up with, or null if not armed. */
   padArrayCount: number | null;
+  packageIndex: number;
+  packageRotated: boolean;
+  onSelectPackage: (index: number) => void;
+  onRotatePackage: () => void;
   onSetTool: (tool: Tool) => void;
   onFinishTrace: () => void;
   onUndoPoint: () => void;
@@ -28,6 +33,10 @@ export function Toolbar({
   hasSelection,
   selectedPadId,
   padArrayCount,
+  packageIndex,
+  packageRotated,
+  onSelectPackage,
+  onRotatePackage,
   onSetTool,
   onFinishTrace,
   onUndoPoint,
@@ -60,6 +69,20 @@ export function Toolbar({
         <button type="button" className={tool === 'pad' ? 'active' : ''} onClick={() => onSetTool('pad')}>
           Pad
         </button>
+        <button
+          type="button"
+          className={tool === 'testpoint' ? 'active' : ''}
+          onClick={() => onSetTool('testpoint')}
+        >
+          Test point
+        </button>
+        <button
+          type="button"
+          className={tool === 'package' ? 'active' : ''}
+          onClick={() => onSetTool('package')}
+        >
+          SMD package
+        </button>
       </div>
 
       {tool === 'trace' && (
@@ -79,8 +102,40 @@ export function Toolbar({
       {(tool === 'via' || tool === 'hole') && (
         <div className="toolbar-group">
           <span className="export-hint">
-            Placed on both sides at once. Scroll over one to resize it, or over bare board to
-            change the default {tool} size.
+            Placed on both sides at once. The preview under the cursor is drawn at the real
+            size — change it in the Scale panel.
+          </span>
+        </div>
+      )}
+
+      {tool === 'testpoint' && (
+        <div className="toolbar-group">
+          <span className="export-hint">
+            Click to drop a round test point. The preview is drawn at the real size.
+          </span>
+        </div>
+      )}
+
+      {tool === 'package' && (
+        <div className="toolbar-group">
+          <label className="inline-field">
+            <span>Footprint</span>
+            <select
+              value={packageIndex}
+              onChange={(e) => onSelectPackage(Number(e.target.value))}
+            >
+              {SMD_PACKAGES.map((p, i) => (
+                <option key={p.name} value={i}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" onClick={onRotatePackage}>
+            Rotate ({packageRotated ? 'vertical' : 'horizontal'})
+          </button>
+          <span className="export-hint">
+            Scroll to step through footprints, right-click to rotate. Click to drop both pads.
           </span>
         </div>
       )}

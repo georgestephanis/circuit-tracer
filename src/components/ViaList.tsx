@@ -1,4 +1,4 @@
-import type { HoleKind, LengthUnit, Selection, Via } from '../types';
+import { GROUND_COLOR, type HoleKind, type LengthUnit, type Selection, type Via } from '../types';
 import { UNIT_LABELS } from '../lib/scale';
 import { NumberField } from './NumberField';
 
@@ -11,9 +11,19 @@ interface Props {
   onSelect: (id: string) => void;
   onRename: (id: string, label: string) => void;
   onSetDiameter: (id: string, diameter: number) => void;
+  onToggleGround: (id: string) => void;
 }
 
-export function ViaList({ vias, kind, selection, unit, onSelect, onRename, onSetDiameter }: Props) {
+export function ViaList({
+  vias,
+  kind,
+  selection,
+  unit,
+  onSelect,
+  onRename,
+  onSetDiameter,
+  onToggleGround,
+}: Props) {
   const noun = kind === 'hole' ? 'hole' : 'via';
   if (vias.length === 0) return <p className="list-empty">No {noun}s yet.</p>;
   return (
@@ -27,6 +37,7 @@ export function ViaList({ vias, kind, selection, unit, onSelect, onRename, onSet
           >
             <span
               className={`swatch via-swatch via-swatch--${v.kind} ${linked ? 'linked' : 'unlinked'}`}
+              style={v.ground ? { background: GROUND_COLOR, color: GROUND_COLOR } : undefined}
             />
             <span className="item-id" onClick={() => onSelect(v.id)}>
               {v.id} {linked ? '(both sides)' : '(one side)'}
@@ -39,10 +50,18 @@ export function ViaList({ vias, kind, selection, unit, onSelect, onRename, onSet
             />
             <NumberField
               className="width-input"
-              title={`Diameter in ${UNIT_LABELS[unit]} — or scroll the wheel over the ${noun}`}
+              title={`Diameter in ${UNIT_LABELS[unit]}`}
               value={v.diameter}
               onCommit={(d) => d !== undefined && onSetDiameter(v.id, d)}
             />
+            <label className="ground-toggle" title={`Tie this ${noun} to the ground net`}>
+              <input
+                type="checkbox"
+                checked={Boolean(v.ground)}
+                onChange={() => onToggleGround(v.id)}
+              />
+              GND
+            </label>
           </li>
         );
       })}

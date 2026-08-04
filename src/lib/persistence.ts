@@ -4,7 +4,13 @@ const STORAGE_KEY = 'circuit-tracer/sessions/v1';
 // v2 split vias and holes: every via carries a `kind`, and holes have their own
 // default diameter. v1 sessions have no way to say which is which, so they're
 // dropped by the version filter in readAll() rather than guessed at.
-const SCHEMA_VERSION = 2;
+//
+// v3 added round pads (test points) and the ground flag. Both read safely on
+// older data — a pad with no `shape` is a rect, and no `ground` is not ground —
+// so v2 sessions are normalized on load rather than discarded.
+const SCHEMA_VERSION = 3;
+/** Versions whose data can be read as-is once normalized by `migrate()`. */
+const READABLE_VERSIONS = [2, SCHEMA_VERSION];
 /** How many boards' worth of work to keep before evicting the oldest. */
 const MAX_SESSIONS = 8;
 
@@ -39,6 +45,7 @@ export interface SavedSession {
   defaultTraceWidth: number;
   defaultViaDiameter: number;
   defaultHoleDiameter: number;
+  defaultTestPointDiameter: number;
   alignment: Partial<Record<Side, SavedAlignment>>;
 }
 
@@ -67,13 +74,30 @@ function readAll(): Record<string, SavedSession> {
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Record<string, SavedSession>;
     if (!parsed || typeof parsed !== 'object') return {};
-    // Drop anything written by an incompatible older/newer build.
+    // Drop anything written by an incompatible build; bring the rest current.
     return Object.fromEntries(
-      Object.entries(parsed).filter(([, s]) => s && s.version === SCHEMA_VERSION),
+      Object.entries(parsed)
+        .filter(([, s]) => s && READABLE_VERSIONS.includes(s.version))
+        .map(([k, s]) => [k, migrate(s)]),
     );
   } catch {
     return {};
   }
+}
+
+/**
+ * Fill in fields added after a session was written. Only ever adds defaults
+ * that are *correct* for the older data — every pad written before v3 was a
+ * rectangle and nothing was flagged as ground, so neither is a guess.
+ */
+function migrate(s: SavedSession): SavedSession {
+  if (s.version === SCHEMA_VERSION) return s;
+  return {
+    ...s,
+    version: SCHEMA_VERSION,
+    pads: s.pads.map((p) => ({ ...p, shape: p.shape ?? 'rect' })),
+    defaultTestPointDiameter: s.defaultTestPointDiameter ?? 0.75,
+  };
 }
 
 export function loadSession(key: string): SavedSession | null {
@@ -144,6 +168,7 @@ export function snapshotFromState(state: BoardState): SavedSession {
     defaultTraceWidth: state.defaultTraceWidth,
     defaultViaDiameter: state.defaultViaDiameter,
     defaultHoleDiameter: state.defaultHoleDiameter,
+    defaultTestPointDiameter: state.defaultTestPointDiameter,
     alignment,
   };
 }

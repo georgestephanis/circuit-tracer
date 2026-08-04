@@ -64,12 +64,29 @@ export interface Via {
   back?: Point;
   /** Physical diameter in the board's unit. */
   diameter: number;
+  /** Part of the ground net — see `GROUND_COLOR`. */
+  ground?: boolean;
 }
 
+/**
+ * The one color every grounded via, hole, and pad is drawn in, whatever color
+ * it would otherwise have. Ground items are implicitly one net: they're all
+ * tied together without needing pairwise connections recorded between them.
+ * Deliberately outside the trace palette so it can't collide with a real net.
+ */
+export const GROUND_COLOR = '#6b7280';
+
 /** An axis-aligned rectangular pad, in its side's image pixel space. */
+/**
+ * A rectangular pad, or a round test point — both are single-sided copper that
+ * merges with whatever it covers, so they share one type. `x`/`y`/`width`/
+ * `height` are the bounding box either way; a round pad is the inscribed circle
+ * and is always kept square.
+ */
 export interface Pad {
   id: string;
   side: Side;
+  shape: PadShape;
   x: number;
   y: number;
   width: number;
@@ -78,9 +95,16 @@ export interface Pad {
   color: string;
   connectsTrace: string[];
   connectsVia: string[];
+  /** Part of the ground net — see `GROUND_COLOR`. */
+  ground?: boolean;
 }
 
-export type Tool = 'trace' | 'via' | 'hole' | 'pad';
+export type PadShape = 'rect' | 'round';
+
+export type Tool = 'trace' | 'via' | 'hole' | 'pad' | 'testpoint' | 'package';
+
+/** Anything sized by a diameter rather than a width — see `SET_DEFAULT_DIAMETER`. */
+export type RoundKind = HoleKind | 'testpoint';
 
 export interface Selection {
   kind: 'trace' | 'via' | 'pad';
@@ -120,4 +144,10 @@ export interface BoardState {
   defaultViaDiameter: number;
   /** Default physical diameter for new holes, in `unit`. */
   defaultHoleDiameter: number;
+  /** Default physical diameter for new test points, in `unit`. */
+  defaultTestPointDiameter: number;
+  /** Index into `SMD_PACKAGES` for the footprint the package tool will place. */
+  packageIndex: number;
+  /** Whether that footprint is turned a quarter turn from its default axis. */
+  packageRotated: boolean;
 }

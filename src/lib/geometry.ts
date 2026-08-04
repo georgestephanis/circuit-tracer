@@ -87,20 +87,31 @@ export function throughBoard(p: Point, boardWidth: number): Point {
   return { x: boardWidth - p.x, y: p.y };
 }
 
-/** Nearest via on the given side within a pixel radius, or null. */
-export function nearestVia<T extends { front?: Point; back?: Point }>(
+/** Floor on a via's grab radius, so a tiny via is still easy to hit. */
+export const VIA_GRAB_FLOOR_PX = 8;
+
+/**
+ * The via a point should snap to, or null.
+ *
+ * Each via is grabbable within its own drawn radius, so a big hole has a big
+ * target and a 0.4 mm via doesn't demand pixel-perfect aim. Shared by trace
+ * snapping, wheel sizing, and the connections recorded when a trace is
+ * finished, so all three agree on what counts as "on" a via.
+ */
+export function snapVia<T extends { front?: Point; back?: Point; diameter: number }>(
   vias: T[],
   side: 'front' | 'back',
   point: Point,
-  radius: number,
+  pxPerUnit: number,
 ): T | null {
   let best: T | null = null;
-  let bestDist = radius;
+  let bestDist = Infinity;
   for (const via of vias) {
     const p = via[side];
     if (!p) continue;
     const d = distance(p, point);
-    if (d <= bestDist) {
+    const reach = Math.max((via.diameter / 2) * pxPerUnit, VIA_GRAB_FLOOR_PX);
+    if (d <= reach && d < bestDist) {
       bestDist = d;
       best = via;
     }

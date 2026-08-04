@@ -85,6 +85,19 @@
   width: 64px;
 }
 
+.ground-toggle {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.swatch--round {
+  border-radius: 50%;
+}
+
 .toolbar button.active {
   border-color: var(--accent);
   color: var(--accent);
@@ -154,7 +167,9 @@
 }
 
 .tool-via .board-canvas,
-.tool-hole .board-canvas {
+.tool-hole .board-canvas,
+.tool-testpoint .board-canvas,
+.tool-package .board-canvas {
   cursor: copy;
 }
 
@@ -193,7 +208,37 @@
   stroke: #f59e0b;
 }
 
-/* Wheel-sizing readout: dark halo first, so it stays legible over any photo. */
+/* Rubber band from the last trace point to the cursor. */
+.trace-pending {
+  stroke: #38bdf8;
+  stroke-dasharray: 6 4;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+/* Halo around the via a trace click would snap to. */
+.via-snap-target {
+  fill: none;
+  stroke: #38bdf8;
+  stroke-width: 2;
+  opacity: 0.9;
+}
+
+/* True-scale preview of what the active tool would place. */
+.size-preview-mark {
+  fill: none;
+  stroke: #38bdf8;
+  stroke-linecap: round;
+  opacity: 0.75;
+}
+
+/* Anything tied to the ground net. */
+.ground {
+  stroke: #e2e8f0;
+  stroke-dasharray: 3 2;
+}
+
+/* Size readout: dark halo first, so it stays legible over any photo. */
 .size-hint {
   fill: #f8fafc;
   stroke: rgba(0, 0, 0, 0.85);

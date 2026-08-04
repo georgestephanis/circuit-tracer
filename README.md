@@ -28,7 +28,9 @@ npm run build   # production build (also type-checks)
 4. Pick a tool in the toolbar:
    - **Trace** — click to add points to the current path; double-click, or
      press **Enter**, to finish it. **Escape** cancels the in-progress trace,
-     and "Undo point" removes the last placed point.
+     and "Undo point" removes the last placed point. A pending segment follows
+     the cursor so you can see where the next point lands, and clicking a via
+     or hole **snaps** the point to its centre and records the connection.
    - **Via** — a small plated signal via. Click a spot on either image and it's
      placed on **both** sides at once. See [Vias and
      holes](#vias-and-holes).
@@ -38,6 +40,11 @@ npm run build   # production build (also type-checks)
      preview follows the cursor after the first click; **Escape** cancels.
      Pads merge with the copper they cover, and a single pad can be repeated
      into an evenly spaced series — see [Pads](#pads).
+   - **Test point** — one click drops a round pad at a standard 0.75 mm. It's
+     a pad in every other respect: it merges with copper, can be labelled, and
+     can be repeated into a series.
+   - **SMD package** — drops both pads of a common chip footprint in one
+     click. See [SMD packages](#smd-packages).
 5. Traces, pads, vias and holes appear in the sidebar lists, where you can
    rename them (e.g. give a trace a net name), set an exact width/diameter, or
    click to select them. **Delete/Backspace** removes the selected item.
@@ -60,12 +67,11 @@ not pixels, so they stay meaningful regardless of photo resolution.
   nothing renders at an absurd size. The Scale panel says which case you're in.
 - **Default trace width** applies to new traces; override individual traces
   with the width box in the Traces list (leave it blank to follow the default).
-- **Default via ⌀** and **Default hole ⌀** apply to newly placed vias and
-  holes respectively; individual ones are set by scrolling over them or typing
-  in their sidebar list.
+- **Default via ⌀**, **Default hole ⌀**, and **Test point ⌀** apply to newly
+  placed items of each kind; individual ones are set in their sidebar list.
 
-All three defaults can also be nudged by scrolling over bare board with that
-tool active — see [Scroll-wheel sizing](#scroll-wheel-sizing).
+Every default previews at true scale under the cursor while its tool is active
+— see [Judging sizes against the photo](#judging-sizes-against-the-photo).
 
 ## Vias and holes
 
@@ -77,9 +83,8 @@ board — and differ only in default size and how they're drawn:
 | **Via** | 0.4 mm | solid plated dot |
 | **Hole** | 1 mm | open ring |
 
-Neither default is binding: resize any individual one with the scroll wheel or
-the diameter box in its sidebar list, and change the defaults in the Scale
-section or by scrolling over bare board with that tool active.
+Neither default is binding: resize any individual one with the diameter box in
+its sidebar list, and change the defaults in the Scale section.
 
 ### Placement goes through the board
 
@@ -99,21 +104,23 @@ A list entry reads *(both sides)* normally, or *(one side)* if it lost its other
 half — which only happens if the board width wasn't known yet when it was
 placed (no image loaded and no alignment done).
 
-## Scroll-wheel sizing
+## Judging sizes against the photo
 
-The wheel resizes whatever is under the cursor, and shows the resulting
-dimension next to the pointer for about a second:
+Sizes are typed, not dragged — but a number in millimetres is hard to picture
+against a photo, so **the active tool previews what it would place, at true
+scale, under the cursor**, labelled with its dimension:
 
-- **Over a via or hole** — resizes it. It's one physical hole, so both sides
-  change together.
-- **Over a trace** — resizes that trace's width. A trace that was following the
-  board default gets pinned to its own width the moment you size it by hand.
-- **Over bare board** — resizes the *default* for the active tool (trace, via,
-  or hole), which applies to everything you place next. The readout says
-  "New via: …" so you can tell the two cases apart.
+- **Trace** — a stub of copper at the current default width.
+- **Via / Hole / Test point** — a circle at that tool's default diameter.
+- **SMD package** — both pads of the selected footprint.
 
-Sizes are clamped to a sane minimum, and the readout shows the clamped value —
-it never displays a size the board won't actually accept.
+Change the size in the Scale panel and the preview updates live, so you can
+dial a number in until it matches the copper you're looking at. Existing items
+are the same comparison: edit a width or diameter in its sidebar list and it
+redraws on the photo at true scale.
+
+The scroll wheel does **not** resize anything. Its only job is stepping through
+the footprint catalog while the SMD package tool is active.
 
 ## Pads
 
@@ -147,6 +154,41 @@ spaced positions between them, endpoint included. Copies keep the source's size
 and color — a series is one connector — and each one merges with any trace or
 via it lands on, exactly like a hand-drawn pad. The series runs along one side;
 a click on the opposite panel is ignored rather than placing pads you can't see.
+
+## SMD packages
+
+The **SMD package** tool drops both pads of a two-pad chip footprint in a
+single click, sized from the board's real dimensions so it lands at true scale.
+
+- **Scroll** over the board to step through the catalog — 0402, 0603, 0805,
+  1206, 1210, 2010, 2512 — or pick one from the toolbar dropdown.
+- **Right-click** to rotate the footprint a quarter turn. Chip parts are
+  symmetrical, so that's the only orientation control needed to aim one along a
+  trace.
+- The footprint previews under the cursor at true scale, so you can size it
+  against the part outline in the photo before committing.
+
+The two pads are placed as ordinary rectangular pads — they merge with copper,
+can be labelled and grounded, and can be deleted individually. Nothing records
+that they came from the same part.
+
+The dimensions are nominal hand-solder land patterns, good enough to identify a
+part on a photograph. They're **not** a substitute for a manufacturer's
+recommended footprint. The table is a plain array in `src/lib/packages.ts` —
+adding a package is a one-line change.
+
+## Ground
+
+Vias, holes, and pads can be flagged as **GND** with the checkbox in their
+sidebar list. A grounded item is drawn in a single distinct ground color
+whatever color it would otherwise have, with a dashed outline.
+
+Ground items are **implicitly one net**: they're all tied together without
+pairwise connections being recorded between them, which is what makes a ground
+plane tractable to mark up. In the export each carries `data-ground="true"` and
+`data-net="GND"`.
+
+A dedicated ground-plane feature is planned; this flag is the groundwork for it.
 
 ## Aligning a side
 
@@ -206,10 +248,15 @@ Other behavior worth knowing:
 - The 8 most recent sessions are kept; older ones are evicted. If storage is
   full or unavailable, a message appears and editing continues normally —
   autosave is a convenience, and **Export SVG** remains the durable artifact.
-- Saved sessions carry a schema version, and a session written by an
-  incompatible build is **discarded rather than migrated**. Splitting vias and
-  holes bumped the schema to v2, so sessions saved before that are gone — a v1
-  via records no `kind`, and guessing one seemed worse than starting clean.
+- Saved sessions carry a schema version. A session is **migrated** when the
+  missing fields have an unambiguously correct value, and **discarded** when
+  they don't:
+  - **v1 → dropped.** Splitting vias and holes made `kind` required, and a v1
+    via records nothing that says which it was. Guessing seemed worse than
+    starting clean.
+  - **v2 → migrated.** Round pads and the ground flag were added afterwards.
+    Every pad written before that was a rectangle and nothing was grounded, so
+    filling those in isn't a guess.
 
 ## Exported SVG schema
 
@@ -223,8 +270,12 @@ The export is a single `<svg>` containing two side-by-side groups:
 
   <g data-side="front" data-px-per-unit="10" transform="translate(0, 0)">
     <image href="data:image/...;base64,..." x="0" y="0" width="…" height="…" />
-    <rect id="pad-front-1" class="pad" data-side="front" data-connects="trace-front-1 via-1"
+    <rect id="pad-front-1" class="pad pad--rect" data-side="front" data-shape="rect"
+          data-connects="trace-front-1 via-1"
           data-width="5" data-height="4" x="270" y="80" width="50" height="40" fill="…" />
+    <circle id="tp-front-3" class="pad pad--round" data-side="front" data-shape="round"
+            data-ground="true" data-net="GND"
+            data-diameter="0.75" cx="150" cy="60" r="3.75" fill="#6b7280" />
     <path id="trace-front-1" class="trace" data-side="front" data-label="GND"
           data-connects="pad-front-1" data-width="0.25" d="M …" stroke="…" stroke-width="2.5" />
     <circle id="via-1-front" class="via via--via" data-via-id="via-1" data-kind="via"
@@ -274,11 +325,19 @@ Notes for parsers:
   pad and via IDs this trace connects to, present only if at least one is
   linked. `data-width` is the trace's physical width; `stroke-width` is that
   same width in pixels.
-- Pads are `<rect class="pad">` elements, axis-aligned, with `data-width` /
-  `data-height` giving their physical size alongside the pixel `width` /
-  `height`. `data-connects` lists the trace and via IDs the pad merges with.
+- Pads carry `class="pad"` and a `data-shape`, and their element type follows
+  the shape — **check `data-shape`, not the tag**:
+  - `data-shape="rect"` → an axis-aligned `<rect class="pad pad--rect">` with
+    `data-width` / `data-height` alongside the pixel `width` / `height`.
+  - `data-shape="round"` → a `<circle class="pad pad--round">` with a single
+    `data-diameter`, used for test points. Its `id` is prefixed `tp-`.
+- `data-connects` on a pad lists the trace and via IDs it merges with.
   **Linkage is bidirectional**: if a pad lists a trace, that trace also lists
   the pad, so you can traverse from either end.
+- Grounded copper carries `data-ground="true"` and `data-net="GND"`, and is
+  filled in the ground color. Every element with `data-net="GND"` is on one
+  net — that connectivity is *not* also written out as pairwise `data-connects`
+  entries, so treat the flag itself as the linkage.
 - Pads are emitted **before** traces within a group, so painting them in
   document order renders trace-into-pad as one continuous copper shape.
 - Vias and holes are both `<circle class="via">` elements, distinguished by

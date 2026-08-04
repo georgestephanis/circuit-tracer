@@ -1,4 +1,4 @@
-import type { HoleKind, LengthUnit, PhysicalSize } from '../types';
+import type { LengthUnit, PhysicalSize, RoundKind } from '../types';
 import { ASSUMED_BOARD_WIDTH_MM, UNIT_LABELS, convertLength, formatLength } from '../lib/scale';
 import { NumberField } from './NumberField';
 
@@ -10,10 +10,11 @@ interface Props {
   defaultTraceWidth: number;
   defaultViaDiameter: number;
   defaultHoleDiameter: number;
+  defaultTestPointDiameter: number;
   onSetUnit: (unit: LengthUnit) => void;
   onSetBoardSize: (size: PhysicalSize | null) => void;
   onSetDefaultTraceWidth: (width: number) => void;
-  onSetDefaultDiameter: (kind: HoleKind, diameter: number) => void;
+  onSetDefaultDiameter: (kind: RoundKind, diameter: number) => void;
 }
 
 export function ScalePanel({
@@ -22,6 +23,7 @@ export function ScalePanel({
   defaultTraceWidth,
   defaultViaDiameter,
   defaultHoleDiameter,
+  defaultTestPointDiameter,
   onSetUnit,
   onSetBoardSize,
   onSetDefaultTraceWidth,
@@ -91,6 +93,13 @@ export function ScalePanel({
             onCommit={(v) => v !== undefined && onSetDefaultDiameter('hole', v)}
           />
         </label>
+        <label className="field">
+          <span>Test point ⌀</span>
+          <NumberField
+            value={defaultTestPointDiameter}
+            onCommit={(v) => v !== undefined && onSetDefaultDiameter('testpoint', v)}
+          />
+        </label>
       </div>
 
       <p className="list-empty">
@@ -99,8 +108,8 @@ export function ScalePanel({
           : `No board dimensions set — drawing as if the board were ${formatLength(assumed, unit)} ${UNIT_LABELS[unit]} wide. Enter the real size to scale accurately.`}
       </p>
       <p className="list-empty">
-        Scroll the wheel over a via or hole to resize it, or over bare board in Via/Hole mode to
-        change that tool's default.
+        These sizes are previewed at true scale under the cursor while the matching tool is
+        active, so you can compare them against the board before placing anything.
       </p>
     </div>
   );

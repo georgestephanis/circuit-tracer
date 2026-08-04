@@ -7,6 +7,7 @@ import type {
   PhysicalSize,
   Point,
   RawImage,
+  RoundKind,
   Side,
   Tool,
   Trace,
@@ -17,9 +18,11 @@ import {
   padSeriesRects,
   pointInRect,
   rectFromCorners,
+  snapVia,
   throughBoard,
 } from '../lib/geometry';
-import { clampLength, convertLength } from '../lib/scale';
+import { clampLength, convertLength, pxPerUnit } from '../lib/scale';
+import { SMD_PACKAGES, cyclePackage, packagePads } from '../lib/packages';
 import type { SavedSession } from '../lib/persistence';
 
 export type Action =
@@ -40,6 +43,13 @@ export type Action =
   | { type: 'UNDO_DRAFT_POINT' }
   | { type: 'ADD_VIA'; side: Side; point: Point; kind: HoleKind }
   | { type: 'PAD_CORNER'; side: Side; point: Point }
+  | { type: 'ADD_TEST_POINT'; side: Side; point: Point }
+  | { type: 'ADD_PACKAGE'; side: Side; point: Point }
+  /** Step through the footprint catalog (wheel) and turn it a quarter (right-click). */
+  | { type: 'CYCLE_PACKAGE'; step: number }
+  | { type: 'ROTATE_PACKAGE' }
+  /** Flag a via/hole or pad as part of the ground net, or clear the flag. */
+  | { type: 'TOGGLE_GROUND'; kind: 'via' | 'pad'; id: string }
   /** Arm a pad series off an existing pad; the next canvas click ends it. */
   | { type: 'START_PAD_ARRAY'; padId: string; count: number }
   | { type: 'PLACE_PAD_ARRAY'; side: Side; point: Point }
@@ -52,14 +62,10 @@ export type Action =
   | { type: 'SET_UNIT'; unit: LengthUnit }
   | { type: 'SET_BOARD_SIZE'; boardSize: PhysicalSize | null }
   | { type: 'SET_DEFAULT_TRACE_WIDTH'; width: number }
-  | { type: 'SET_DEFAULT_DIAMETER'; kind: HoleKind; diameter: number }
+  | { type: 'SET_DEFAULT_DIAMETER'; kind: RoundKind; diameter: number }
   | { type: 'SET_TRACE_WIDTH'; id: string; width: number | undefined }
   | { type: 'SET_VIA_DIAMETER'; id: string; diameter: number }
-  /** Multiplicative resize, used by scroll-wheel sizing. */
-  | { type: 'SCALE_VIA_DIAMETER'; id: string; factor: number }
-  | { type: 'SCALE_TRACE_WIDTH'; id: string; factor: number }
-  | { type: 'SCALE_DEFAULT_TRACE_WIDTH'; factor: number }
-  | { type: 'SCALE_DEFAULT_DIAMETER'; kind: HoleKind; factor: number }
+  | { type: 'SET_PAD_DIAMETER'; id: string; diameter: number }
   | { type: 'SET_BOARD_NAME'; boardName: string }
   | { type: 'RESTORE_SESSION'; session: SavedSession; images: Record<Side, BoardImage | null> }
   | { type: 'RESET_BOARD' };
@@ -91,7 +97,19 @@ export const initialState: BoardState = {
   // standard 1 mm through-hole. Both are editable per-item and per-board.
   defaultViaDiameter: 0.4,
   defaultHoleDiameter: 1,
+  defaultTestPointDiameter: 0.75,
+  packageIndex: 1,
+  packageRotated: false,
 };
+
+/** Set the board's default size for one of the round things you can place. */
+function withDefaultDiameter(state: BoardState, kind: RoundKind, value: number): BoardState {
+  return kind === 'hole'
+    ? { ...state, defaultHoleDiameter: value }
+    : kind === 'testpoint'
+      ? { ...state, defaultTestPointDiameter: value }
+      : { ...state, defaultViaDiameter: value };
+}
 
 /** Where the board's width lives, for mirroring a point through to the other side. */
 function boardWidthPx(state: BoardState, side: Side): number | null {
@@ -233,13 +251,21 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       );
       const touchedIds = touched.map((p) => p.id);
 
+      // Same for vias: any point sitting on one connects the trace to it. Points
+      // clicked on a via were snapped to its centre, so this picks those up, and
+      // it also catches a point dropped on a via without snapping.
+      const scale = pxPerUnit(state.images[draft.side], state.boardSize, state.unit);
+      const touchedVias = state.vias.filter((v) =>
+        draft.points.some((p) => snapVia([v], draft.side, p, scale) !== null),
+      );
+
       const trace: Trace = {
         id,
         side: draft.side,
         points: draft.points,
         label: '',
         color,
-        connectsVia: [],
+        connectsVia: touchedVias.map((v) => v.id),
         connectsPad: touchedIds,
       };
 
@@ -299,6 +325,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       const pad: Pad = {
         id,
         side: action.side,
+        shape: 'rect',
         ...rect,
         label: '',
         // Adopt the color of the copper it merges with, so the union reads as
@@ -320,6 +347,102 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         draftPad: null,
       };
     }
+
+    case 'ADD_TEST_POINT': {
+      // A test point is a round pad placed by one click, centred on it.
+      const scale = pxPerUnit(state.images[action.side], state.boardSize, state.unit);
+      const size = state.defaultTestPointDiameter * scale;
+      const rect: Rect = {
+        x: Math.round(action.point.x - size / 2),
+        y: Math.round(action.point.y - size / 2),
+        width: size,
+        height: size,
+      };
+      const { traces, vias } = padConnections(state, action.side, rect);
+      const id = `tp-${action.side}-${state.nextPadNum}`;
+
+      const pad: Pad = {
+        id,
+        side: action.side,
+        shape: 'round',
+        ...rect,
+        label: '',
+        // Like any pad, it adopts the color of the copper it lands on so the
+        // two read as one shape.
+        color: traces[0]?.color ?? TRACE_COLORS[(state.nextPadNum - 1) % TRACE_COLORS.length],
+        connectsTrace: traces.map((t) => t.id),
+        connectsVia: vias.map((v) => v.id),
+      };
+
+      return {
+        ...state,
+        pads: [...state.pads, pad],
+        traces: state.traces.map((t) =>
+          pad.connectsTrace.includes(t.id)
+            ? { ...t, connectsPad: addUnique(t.connectsPad, id) }
+            : t,
+        ),
+        nextPadNum: state.nextPadNum + 1,
+      };
+    }
+
+    case 'CYCLE_PACKAGE':
+      return { ...state, packageIndex: cyclePackage(state.packageIndex, action.step) };
+
+    case 'ROTATE_PACKAGE':
+      return { ...state, packageRotated: !state.packageRotated };
+
+    case 'ADD_PACKAGE': {
+      // Both pads of the footprint land in one click, as one part.
+      const scale = pxPerUnit(state.images[action.side], state.boardSize, state.unit);
+      const pkg = SMD_PACKAGES[state.packageIndex];
+      const rects = packagePads(pkg, action.point, scale, state.packageRotated);
+
+      const created: Pad[] = [];
+      let num = state.nextPadNum;
+      for (const rect of rects) {
+        const { traces, vias } = padConnections(state, action.side, rect);
+        created.push({
+          id: `pad-${action.side}-${num}`,
+          side: action.side,
+          shape: 'rect',
+          ...rect,
+          label: '',
+          color: traces[0]?.color ?? TRACE_COLORS[(num - 1) % TRACE_COLORS.length],
+          connectsTrace: traces.map((t) => t.id),
+          connectsVia: vias.map((v) => v.id),
+        });
+        num++;
+      }
+
+      const padsByTrace = new Map<string, string[]>();
+      for (const pad of created) {
+        for (const traceId of pad.connectsTrace) {
+          padsByTrace.set(traceId, [...(padsByTrace.get(traceId) ?? []), pad.id]);
+        }
+      }
+
+      return {
+        ...state,
+        pads: [...state.pads, ...created],
+        traces: state.traces.map((t) => {
+          const ids = padsByTrace.get(t.id);
+          return ids ? { ...t, connectsPad: ids.reduce(addUnique, t.connectsPad) } : t;
+        }),
+        nextPadNum: num,
+      };
+    }
+
+    case 'TOGGLE_GROUND':
+      return action.kind === 'via'
+        ? {
+            ...state,
+            vias: state.vias.map((v) => (v.id === action.id ? { ...v, ground: !v.ground } : v)),
+          }
+        : {
+            ...state,
+            pads: state.pads.map((p) => (p.id === action.id ? { ...p, ground: !p.ground } : p)),
+          };
 
     case 'START_PAD_ARRAY': {
       const source = state.pads.find((p) => p.id === action.padId);
@@ -349,12 +472,15 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       for (const rect of rects) {
         const { traces, vias } = padConnections(state, action.side, rect);
         created.push({
-          id: `pad-${action.side}-${num}`,
+          id: `${source.shape === 'round' ? 'tp' : 'pad'}-${action.side}-${num}`,
           side: action.side,
+          // The copies are the same footprint as the source, round or not.
+          shape: source.shape,
           ...rect,
           label: '',
           // A series is one connector, so the copies keep the source's color.
           color: source.color,
+          ground: source.ground,
           connectsTrace: traces.map((t) => t.id),
           connectsVia: vias.map((v) => v.id),
         });
@@ -433,6 +559,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         defaultTraceWidth: conv(state.defaultTraceWidth),
         defaultViaDiameter: conv(state.defaultViaDiameter),
         defaultHoleDiameter: conv(state.defaultHoleDiameter),
+        defaultTestPointDiameter: conv(state.defaultTestPointDiameter),
         traces: state.traces.map((t) =>
           t.width === undefined ? t : { ...t, width: conv(t.width) },
         ),
@@ -446,12 +573,8 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
     case 'SET_DEFAULT_TRACE_WIDTH':
       return { ...state, defaultTraceWidth: clampLength(action.width, state.unit) };
 
-    case 'SET_DEFAULT_DIAMETER': {
-      const value = clampLength(action.diameter, state.unit);
-      return action.kind === 'hole'
-        ? { ...state, defaultHoleDiameter: value }
-        : { ...state, defaultViaDiameter: value };
-    }
+    case 'SET_DEFAULT_DIAMETER':
+      return withDefaultDiameter(state, action.kind, clampLength(action.diameter, state.unit));
 
     case 'SET_TRACE_WIDTH':
       return {
@@ -475,48 +598,24 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         ),
       };
 
-    case 'SCALE_VIA_DIAMETER':
+    // Resizing a round pad keeps it square — it's the inscribed circle, so its
+    // bounding box has to stay one diameter on a side.
+    case 'SET_PAD_DIAMETER':
       return {
         ...state,
-        vias: state.vias.map((v) =>
-          v.id === action.id
-            ? { ...v, diameter: clampLength(v.diameter * action.factor, state.unit) }
-            : v,
-        ),
+        pads: state.pads.map((p) => {
+          if (p.id !== action.id) return p;
+          const scale = pxPerUnit(state.images[p.side], state.boardSize, state.unit);
+          const size = clampLength(action.diameter, state.unit) * scale;
+          return {
+            ...p,
+            x: Math.round(p.x + p.width / 2 - size / 2),
+            y: Math.round(p.y + p.height / 2 - size / 2),
+            width: size,
+            height: size,
+          };
+        }),
       };
-
-    case 'SCALE_TRACE_WIDTH':
-      return {
-        ...state,
-        traces: state.traces.map((t) =>
-          t.id === action.id
-            ? {
-                ...t,
-                // A trace on the board default gets pinned to its own width the
-                // moment you size it by hand.
-                width: clampLength(
-                  (t.width ?? state.defaultTraceWidth) * action.factor,
-                  state.unit,
-                ),
-              }
-            : t,
-        ),
-      };
-
-    case 'SCALE_DEFAULT_TRACE_WIDTH':
-      return {
-        ...state,
-        defaultTraceWidth: clampLength(state.defaultTraceWidth * action.factor, state.unit),
-      };
-
-    case 'SCALE_DEFAULT_DIAMETER': {
-      const current =
-        action.kind === 'hole' ? state.defaultHoleDiameter : state.defaultViaDiameter;
-      const value = clampLength(current * action.factor, state.unit);
-      return action.kind === 'hole'
-        ? { ...state, defaultHoleDiameter: value }
-        : { ...state, defaultViaDiameter: value };
-    }
 
     case 'SET_BOARD_NAME':
       return { ...state, boardName: action.boardName };
@@ -539,7 +638,12 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         defaultTraceWidth: session.defaultTraceWidth,
         defaultViaDiameter: session.defaultViaDiameter,
         defaultHoleDiameter: session.defaultHoleDiameter,
+        defaultTestPointDiameter: session.defaultTestPointDiameter,
+        // Tool and footprint choice are UI state, not board data — a restore
+        // shouldn't yank the tool out from under you.
         tool: state.tool,
+        packageIndex: state.packageIndex,
+        packageRotated: state.packageRotated,
       };
     }
 

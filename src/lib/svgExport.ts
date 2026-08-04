@@ -1,4 +1,4 @@
-import type { BoardState, Pad, Side, Trace, Via } from '../types';
+import { GROUND_COLOR, type BoardState, type Pad, type Side, type Trace, type Via } from '../types';
 import { pointsToPath } from './geometry';
 import { UNIT_LABELS, pxPerUnit } from './scale';
 
@@ -36,13 +36,27 @@ function renderVia(v: Via, side: Side, scale: number): string {
   const radius = Math.max(1, (v.diameter / 2) * scale);
   // A hole is drawn as an open ring; a via as a filled plated dot.
   const isHole = v.kind === 'hole';
-  const fill = isHole ? '#1a1a1a' : '#c0c0c0';
+  const fill = v.ground ? GROUND_COLOR : isHole ? '#1a1a1a' : '#c0c0c0';
   const strokeWidth = Math.max(1, radius * (isHole ? 0.35 : 0.2));
-  return `<circle id="${v.id}-${side}" class="via via--${v.kind}" data-via-id="${v.id}" data-kind="${v.kind}" data-side="${side}"${labelAttr(v.label)} data-diameter="${num(v.diameter)}" cx="${p.x}" cy="${p.y}" r="${num(radius)}" fill="${fill}" stroke="${isHole ? '#c0c0c0' : '#333'}" stroke-width="${num(strokeWidth)}" />`;
+  return `<circle id="${v.id}-${side}" class="via via--${v.kind}" data-via-id="${v.id}" data-kind="${v.kind}" data-side="${side}"${labelAttr(v.label)}${groundAttrs(v.ground)} data-diameter="${num(v.diameter)}" cx="${p.x}" cy="${p.y}" r="${num(radius)}" fill="${fill}" stroke="${isHole ? '#c0c0c0' : '#333'}" stroke-width="${num(strokeWidth)}" />`;
+}
+
+/** `data-ground` and the GND net name, present only on grounded copper. */
+function groundAttrs(ground: boolean | undefined): string {
+  return ground ? ' data-ground="true" data-net="GND"' : '';
 }
 
 function renderPad(pad: Pad, scale: number): string {
-  return `<rect id="${pad.id}" class="pad" data-side="${pad.side}"${labelAttr(pad.label)}${connectsAttr([...pad.connectsTrace, ...pad.connectsVia])} data-width="${num(pad.width / scale)}" data-height="${num(pad.height / scale)}" x="${pad.x}" y="${pad.y}" width="${pad.width}" height="${pad.height}" fill="${pad.color}" />`;
+  const fill = pad.ground ? GROUND_COLOR : pad.color;
+  const common = `class="pad pad--${pad.shape}" data-side="${pad.side}" data-shape="${pad.shape}"${labelAttr(pad.label)}${connectsAttr([...pad.connectsTrace, ...pad.connectsVia])}${groundAttrs(pad.ground)}`;
+
+  // A round pad is the circle inscribed in its bounding box, so it exports as a
+  // <circle> with a diameter rather than a width and height.
+  if (pad.shape === 'round') {
+    const r = pad.width / 2;
+    return `<circle id="${pad.id}" ${common} data-diameter="${num(pad.width / scale)}" cx="${num(pad.x + r)}" cy="${num(pad.y + pad.height / 2)}" r="${num(r)}" fill="${fill}" />`;
+  }
+  return `<rect id="${pad.id}" ${common} data-width="${num(pad.width / scale)}" data-height="${num(pad.height / scale)}" x="${pad.x}" y="${pad.y}" width="${pad.width}" height="${pad.height}" fill="${fill}" />`;
 }
 
 function renderSideGroup(state: BoardState, side: Side, offsetX: number): string {

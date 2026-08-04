@@ -1,19 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
-import type { BoardImage, BoardState, HoleKind, Point, Side, Trace, Via } from '../types';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { GROUND_COLOR, type BoardImage, type BoardState, type Point, type Side } from '../types';
 import {
-  distanceToPolyline,
+  VIA_GRAB_FLOOR_PX,
   padSeriesRects,
   pointsToPath,
   rectFromCorners,
+  snapVia,
   throughBoard,
 } from '../lib/geometry';
-import { UNIT_LABELS, clampLength, formatLength, pxPerUnit } from '../lib/scale';
+import { UNIT_LABELS, formatLength, pxPerUnit } from '../lib/scale';
+import { SMD_PACKAGES, packagePads } from '../lib/packages';
 import { ImageUploader } from './ImageUploader';
-
-/** Multiplicative size change per scroll-wheel notch. */
-const WHEEL_STEP = 1.08;
-/** How long the size readout stays up after the last wheel notch. */
-const HINT_LINGER_MS = 1200;
 
 interface Props {
   side: Side;
@@ -25,10 +22,8 @@ interface Props {
   onSelectVia: (id: string) => void;
   onSelectPad: (id: string) => void;
   onAlign: (side: Side) => void;
-  onScaleVia: (id: string, factor: number) => void;
-  onScaleTrace: (id: string, factor: number) => void;
-  onScaleDefaultDiameter: (kind: HoleKind, factor: number) => void;
-  onScaleDefaultTraceWidth: (factor: number) => void;
+  onCyclePackage: (step: number) => void;
+  onRotatePackage: () => void;
   /** Cursor position on the *other* side, so we can preview where a hole exits here. */
   otherSideHover: Point | null;
   onHoverPoint: (side: Side, point: Point | null) => void;
@@ -44,18 +39,13 @@ export function BoardPanel({
   onSelectVia,
   onSelectPad,
   onAlign,
-  onScaleVia,
-  onScaleTrace,
-  onScaleDefaultDiameter,
-  onScaleDefaultTraceWidth,
+  onCyclePackage,
+  onRotatePackage,
   otherSideHover,
   onHoverPoint,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<Point | null>(null);
-  /** Transient readout of what the wheel is currently sizing. */
-  const [sizeHint, setSizeHint] = useState<{ point: Point; text: string } | null>(null);
-  const hintTimer = useRef<number | null>(null);
   const image = state.images[side];
   const unit = state.unit;
 
@@ -76,123 +66,44 @@ export function BoardPanel({
     return { x: Math.round(local.x), y: Math.round(local.y) };
   }
 
-  /**
-   * Show what the wheel just resized something to, at the cursor. `raw` is put
-   * through the same clamp the reducer uses so the readout can't claim a size
-   * the board won't actually accept.
-   */
-  const showSizeHint = useCallback(
-    (point: Point, raw: number, kind: 'trace' | HoleKind, isDefault = false): void => {
-      const value = clampLength(raw, unit);
-      const size = `${formatLength(value, unit)} ${UNIT_LABELS[unit]}`;
-      const measure = kind === 'trace' ? `${size} wide` : `⌀ ${size}`;
-      setSizeHint({ point, text: isDefault ? `New ${kind}: ${measure}` : measure });
 
-      if (hintTimer.current !== null) window.clearTimeout(hintTimer.current);
-      hintTimer.current = window.setTimeout(() => setSizeHint(null), HINT_LINGER_MS);
-    },
-    [unit],
-  );
-
-  useEffect(
-    () => () => {
-      if (hintTimer.current !== null) window.clearTimeout(hintTimer.current);
-    },
-    [],
-  );
-
-  // Scroll-wheel sizing. React's onWheel is passive, so preventDefault() there
-  // wouldn't stop the page from scrolling — attach a non-passive listener.
+  // Only the package tool uses the wheel, to step through the footprint
+  // catalog. React's onWheel is passive, so preventDefault() there wouldn't
+  // stop the page scrolling — attach a non-passive listener instead.
   useEffect(() => {
     const svg = svgRef.current;
-    if (!svg) return;
+    if (!svg || state.tool !== 'package') return;
 
     function onWheel(e: WheelEvent) {
       if (e.deltaY === 0) return;
-      const p = toImagePoint(e.clientX, e.clientY);
-      if (!p) return;
-      const factor = e.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
-
-      // Grab the via under the cursor, testing against its own drawn radius
-      // (with a floor so tiny vias stay grabbable).
-      let hitVia: Via | null = null;
-      let hitDist = Infinity;
-      for (const v of state.vias) {
-        const c = v[side];
-        if (!c) continue;
-        const d = Math.hypot(c.x - p.x, c.y - p.y);
-        if (d <= Math.max((v.diameter / 2) * scale, 8) && d < hitDist) {
-          hitDist = d;
-          hitVia = v;
-        }
-      }
-
-      // Sizing a via is one physical hole, so it applies to both sides at once.
-      if (hitVia) {
-        e.preventDefault();
-        showSizeHint(p, hitVia.diameter * factor, hitVia.kind);
-        onScaleVia(hitVia.id, factor);
-        return;
-      }
-
-      // Otherwise the nearest trace under the cursor, within its own stroke.
-      let hitTrace: Trace | null = null;
-      let hitTraceDist = Infinity;
-      for (const t of state.traces) {
-        if (t.side !== side) continue;
-        const d = distanceToPolyline(p, t.points);
-        const reach = Math.max(((t.width ?? state.defaultTraceWidth) / 2) * scale, 6);
-        if (d <= reach && d < hitTraceDist) {
-          hitTraceDist = d;
-          hitTrace = t;
-        }
-      }
-
-      if (hitTrace) {
-        e.preventDefault();
-        showSizeHint(p, (hitTrace.width ?? state.defaultTraceWidth) * factor, 'trace');
-        onScaleTrace(hitTrace.id, factor);
-        return;
-      }
-
-      // Over bare board, the wheel sizes the default for the active tool.
-      if (state.tool === 'via' || state.tool === 'hole') {
-        e.preventDefault();
-        const current =
-          state.tool === 'hole' ? state.defaultHoleDiameter : state.defaultViaDiameter;
-        showSizeHint(p, current * factor, state.tool, true);
-        onScaleDefaultDiameter(state.tool, factor);
-      } else if (state.tool === 'trace') {
-        e.preventDefault();
-        showSizeHint(p, state.defaultTraceWidth * factor, 'trace', true);
-        onScaleDefaultTraceWidth(factor);
-      }
+      e.preventDefault();
+      onCyclePackage(e.deltaY < 0 ? -1 : 1);
     }
 
     svg.addEventListener('wheel', onWheel, { passive: false });
     return () => svg.removeEventListener('wheel', onWheel);
-  }, [
-    state.vias,
-    state.traces,
-    state.tool,
-    state.defaultTraceWidth,
-    state.defaultViaDiameter,
-    state.defaultHoleDiameter,
-    showSizeHint,
-    side,
-    scale,
-    onScaleVia,
-    onScaleTrace,
-    onScaleDefaultDiameter,
-    onScaleDefaultTraceWidth,
-  ]);
+  }, [state.tool, onCyclePackage]);
+
+  function handleContextMenu(e: MouseEvent<SVGSVGElement>) {
+    // Right-click aims the footprint rather than opening the browser menu.
+    if (state.tool !== 'package') return;
+    e.preventDefault();
+    onRotatePackage();
+  }
 
   function handleClick(e: MouseEvent<SVGSVGElement>) {
     const p = toImagePoint(e.clientX, e.clientY);
-    if (p) onCanvasClick(side, p);
+    if (!p) return;
+    // Clicking a via while tracing pins the point to its centre, so a trace
+    // starts or ends exactly on the hole rather than near it.
+    const snapped = state.tool === 'trace' ? snapVia(state.vias, side, p, scale) : null;
+    onCanvasClick(side, snapped?.[side] ?? p);
   }
 
   const placingHole = state.tool === 'via' || state.tool === 'hole';
+  /** Tools that place something round at a fixed default size. */
+  const placingRound = placingHole || state.tool === 'testpoint';
+  const placingPackage = state.tool === 'package';
   const arraySource = state.padArray
     ? (state.pads.find((p) => p.id === state.padArray?.sourceId) ?? null)
     : null;
@@ -200,7 +111,8 @@ export function BoardPanel({
 
   function handleMouseMove(e: MouseEvent<SVGSVGElement>) {
     const drawingPad = Boolean(state.draftPad && state.draftPad.side === side);
-    if (!drawingPad && !placingHole && !armingArray) {
+    const tracing = state.tool === 'trace';
+    if (!drawingPad && !placingRound && !armingArray && !tracing && !placingPackage) {
       if (hover) setHover(null);
       onHoverPoint(side, null);
       return;
@@ -220,10 +132,59 @@ export function BoardPanel({
   const draft = state.draftTrace && state.draftTrace.side === side ? state.draftTrace : null;
   const padDraft = state.draftPad && state.draftPad.side === side ? state.draftPad : null;
   const padPreview = padDraft && hover ? rectFromCorners(padDraft.start, hover) : null;
+
+  // While tracing: the via the cursor would snap to, and the rubber-band
+  // segment from the last placed point to wherever the trace would go next.
+  const traceSnap =
+    state.tool === 'trace' && hover ? snapVia(state.vias, side, hover, scale) : null;
+  const pendingEnd = state.tool === 'trace' ? (traceSnap?.[side] ?? hover) : null;
+  const pendingStart = draft && draft.points.length > 0 ? draft.points[draft.points.length - 1] : null;
   const seriesPreview =
     arraySource && armingArray && state.padArray && hover
       ? padSeriesRects(arraySource, hover, state.padArray.count)
       : [];
+
+  /**
+   * What the active tool would place, drawn at true scale under the cursor with
+   * its dimension labelled — so a size can be judged against the photo before
+   * anything is committed.
+   */
+  // The footprint the package tool would drop here, at true scale.
+  const pkg = SMD_PACKAGES[state.packageIndex];
+  const packagePreview =
+    placingPackage && hover ? packagePads(pkg, hover, scale, state.packageRotated) : [];
+
+  const sizePreview = (() => {
+    if (!hover) return null;
+    if (placingPackage) {
+      return {
+        kind: 'package' as const,
+        radius: 0,
+        text: `${pkg.name}${state.packageRotated ? ' ↕' : ' ↔'}`,
+      };
+    }
+    if (placingRound) {
+      const diameter =
+        state.tool === 'hole'
+          ? state.defaultHoleDiameter
+          : state.tool === 'testpoint'
+            ? state.defaultTestPointDiameter
+            : state.defaultViaDiameter;
+      return {
+        kind: state.tool,
+        radius: viaRadiusPx(diameter),
+        text: `${state.tool === 'testpoint' ? 'test point' : state.tool} ⌀ ${formatLength(diameter, unit)} ${UNIT_LABELS[unit]}`,
+      };
+    }
+    if (state.tool === 'trace') {
+      return {
+        kind: 'trace' as const,
+        radius: traceWidthPx(undefined) / 2,
+        text: `trace ${formatLength(state.defaultTraceWidth, unit)} ${UNIT_LABELS[unit]} wide`,
+      };
+    }
+    return null;
+  })();
 
   return (
     <div className="board-panel">
@@ -246,6 +207,7 @@ export function BoardPanel({
               viewBox={`0 0 ${image.width} ${image.height}`}
               className={`board-canvas tool-${state.tool}`}
               onClick={handleClick}
+              onContextMenu={handleContextMenu}
               onDoubleClick={() => onCanvasDoubleClick(side)}
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
@@ -253,26 +215,42 @@ export function BoardPanel({
               <image href={image.src} x={0} y={0} width={image.width} height={image.height} />
 
               {/* Pads sit under the traces so the two read as one copper shape. */}
-              {pads.map((pad) => (
-                <rect
-                  key={pad.id}
-                  x={pad.x}
-                  y={pad.y}
-                  width={pad.width}
-                  height={pad.height}
-                  fill={pad.color}
-                  className={
-                    'pad-shape' +
-                    (state.selection?.kind === 'pad' && state.selection.id === pad.id
-                      ? ' selected'
-                      : '')
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectPad(pad.id);
-                  }}
-                />
-              ))}
+              {pads.map((pad) => {
+                const className =
+                  'pad-shape' +
+                  (pad.ground ? ' ground' : '') +
+                  (state.selection?.kind === 'pad' && state.selection.id === pad.id
+                    ? ' selected'
+                    : '');
+                const fill = pad.ground ? GROUND_COLOR : pad.color;
+                const select = (e: MouseEvent<SVGElement>) => {
+                  e.stopPropagation();
+                  onSelectPad(pad.id);
+                };
+                // A round pad is the circle inscribed in its bounding box.
+                return pad.shape === 'round' ? (
+                  <circle
+                    key={pad.id}
+                    cx={pad.x + pad.width / 2}
+                    cy={pad.y + pad.height / 2}
+                    r={pad.width / 2}
+                    fill={fill}
+                    className={className}
+                    onClick={select}
+                  />
+                ) : (
+                  <rect
+                    key={pad.id}
+                    x={pad.x}
+                    y={pad.y}
+                    width={pad.width}
+                    height={pad.height}
+                    fill={fill}
+                    className={className}
+                    onClick={select}
+                  />
+                );
+              })}
 
               {traces.map((t) => (
                 <path
@@ -349,6 +327,7 @@ export function BoardPanel({
                     className={
                       `via-marker via-marker--${v.kind}` +
                       (linked ? ' via-marker--linked' : ' via-marker--unlinked') +
+                      (v.ground ? ' ground' : '') +
                       (state.selection?.kind === 'via' && state.selection.id === v.id
                         ? ' selected'
                         : '')
@@ -360,6 +339,44 @@ export function BoardPanel({
                   />
                 );
               })}
+
+              {/* Rubber band from the last placed point to where the next would go. */}
+              {pendingStart && pendingEnd && (
+                <line
+                  x1={pendingStart.x}
+                  y1={pendingStart.y}
+                  x2={pendingEnd.x}
+                  y2={pendingEnd.y}
+                  className="trace-pending"
+                  strokeWidth={traceWidthPx(undefined)}
+                  pointerEvents="none"
+                />
+              )}
+
+              {/* The via a trace click would snap to. */}
+              {traceSnap && traceSnap[side] && (
+                <circle
+                  cx={traceSnap[side].x}
+                  cy={traceSnap[side].y}
+                  r={Math.max(viaRadiusPx(traceSnap.diameter), VIA_GRAB_FLOOR_PX) * 1.4}
+                  className="via-snap-target"
+                  pointerEvents="none"
+                />
+              )}
+
+              {/* The SMD footprint that would be dropped here. */}
+              {packagePreview.map((r, i) => (
+                <rect
+                  key={i}
+                  x={r.x}
+                  y={r.y}
+                  width={r.width}
+                  height={r.height}
+                  className="size-preview-mark"
+                  strokeWidth={Math.max(1, image.width * 0.002)}
+                  pointerEvents="none"
+                />
+              ))}
 
               {/* The pad series that would be created if you clicked here. */}
               {seriesPreview.map((r, i) => (
@@ -391,25 +408,47 @@ export function BoardPanel({
                 />
               )}
 
-              {/* What the wheel is sizing, right where the cursor is. */}
-              {sizeHint &&
+              {/* True-scale preview of what this tool would place, at the cursor. */}
+              {sizePreview &&
+                hover &&
                 (() => {
                   // Font size is in image pixels, so scale it to the photo to
                   // stay legible whatever the panel is displayed at.
                   const fs = image.width * 0.022;
-                  const nearRightEdge = sizeHint.point.x > image.width * 0.7;
+                  const nearRightEdge = hover.x > image.width * 0.7;
                   return (
-                    <text
-                      className="size-hint"
-                      x={sizeHint.point.x + (nearRightEdge ? -fs * 0.7 : fs * 0.7)}
-                      y={sizeHint.point.y - fs * 0.7}
-                      textAnchor={nearRightEdge ? 'end' : 'start'}
-                      fontSize={fs}
-                      strokeWidth={fs * 0.22}
-                      pointerEvents="none"
-                    >
-                      {sizeHint.text}
-                    </text>
+                    <g pointerEvents="none">
+                      {sizePreview.kind === 'package' ? null : sizePreview.kind === 'trace' ? (
+                        // A stub of trace at the real width, to compare against
+                        // the copper in the photo.
+                        <line
+                          x1={hover.x - sizePreview.radius * 6}
+                          y1={hover.y}
+                          x2={hover.x + sizePreview.radius * 6}
+                          y2={hover.y}
+                          className="size-preview-mark"
+                          strokeWidth={sizePreview.radius * 2}
+                        />
+                      ) : (
+                        <circle
+                          cx={hover.x}
+                          cy={hover.y}
+                          r={sizePreview.radius}
+                          className="size-preview-mark"
+                          strokeWidth={Math.max(1, sizePreview.radius * 0.2)}
+                        />
+                      )}
+                      <text
+                        className="size-hint"
+                        x={hover.x + (nearRightEdge ? -fs * 0.7 : fs * 0.7)}
+                        y={hover.y - fs * 0.7 - sizePreview.radius}
+                        textAnchor={nearRightEdge ? 'end' : 'start'}
+                        fontSize={fs}
+                        strokeWidth={fs * 0.22}
+                      >
+                        {sizePreview.text}
+                      </text>
+                    </g>
                   );
                 })()}
             </svg>
