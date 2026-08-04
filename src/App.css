@@ -131,6 +131,12 @@
   margin: 0;
 }
 
+.board-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .board-canvas-wrap {
   line-height: 0;
 }
@@ -272,6 +278,43 @@
   background: var(--panel-bg);
   border-radius: 8px;
   padding: 12px;
+}
+
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+
+.sidebar-section-header h3 {
+  margin: 0;
+  flex: 1;
+}
+
+.sidebar-section-caret {
+  color: var(--text-muted);
+  font-size: 11px;
+  width: 10px;
+}
+
+.sidebar-section-count {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Each list scrolls on its own, so one long section can't push the others
+   off the screen. */
+.sidebar-section-body {
+  max-height: 40vh;
+  overflow-y: auto;
 }
 
 .item-list {

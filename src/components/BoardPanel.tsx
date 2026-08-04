@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { GROUND_COLOR, type BoardImage, type BoardState, type Point, type Side } from '../types';
 import {
+  type Rect,
   VIA_GRAB_FLOOR_PX,
   padSeriesRects,
   pointsToPath,
@@ -11,6 +12,15 @@ import {
 import { UNIT_LABELS, formatLength, pxPerUnit } from '../lib/scale';
 import { SMD_PACKAGES, packagePads } from '../lib/packages';
 import { ImageUploader } from './ImageUploader';
+
+/** Zoom change per wheel notch. */
+const ZOOM_STEP = 1.2;
+/** Tightest zoom, as a fraction of the photo's width. */
+const MIN_VIEW_FRACTION = 0.02;
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
 
 interface Props {
   side: Side;
@@ -46,6 +56,14 @@ export function BoardPanel({
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<Point | null>(null);
+  /**
+   * The window onto the photo, in image pixels — this is the SVG's viewBox.
+   * null means "the whole image", which is also what a freshly loaded or
+   * re-aligned photo resets to.
+   */
+  const [view, setView] = useState<Rect | null>(null);
+  /** Where a pan drag started, in image pixels, or null when not panning. */
+  const panFrom = useRef<{ point: Point; view: Rect } | null>(null);
   const image = state.images[side];
   const unit = state.unit;
 
@@ -67,22 +85,75 @@ export function BoardPanel({
   }
 
 
-  // Only the package tool uses the wheel, to step through the footprint
-  // catalog. React's onWheel is passive, so preventDefault() there wouldn't
-  // stop the page scrolling — attach a non-passive listener instead.
+  /** The visible window, falling back to the whole photo. */
+  const viewBox: Rect = view ?? { x: 0, y: 0, width: image?.width ?? 1, height: image?.height ?? 1 };
+  /**
+   * Image pixels per unit of viewBox — 1 at fit-to-panel, smaller when zoomed
+   * in. Overlay text and hairlines multiply by this so they stay the same size
+   * on screen instead of ballooning as you zoom.
+   */
+  const viewScale = image ? viewBox.width / image.width : 1;
+
+  // A new or re-aligned photo is a different pixel space, so any window onto
+  // the old one is meaningless.
+  useEffect(() => setView(null), [image?.src]);
+
+  // The wheel zooms about the cursor — except in package mode, where it steps
+  // through the footprint catalog and Ctrl/Cmd+wheel zooms instead. React's
+  // onWheel is passive, so preventDefault() there wouldn't stop the page
+  // scrolling — attach a non-passive listener instead.
   useEffect(() => {
     const svg = svgRef.current;
-    if (!svg || state.tool !== 'package') return;
+    if (!svg || !image) return;
 
     function onWheel(e: WheelEvent) {
       if (e.deltaY === 0) return;
       e.preventDefault();
-      onCyclePackage(e.deltaY < 0 ? -1 : 1);
+
+      if (state.tool === 'package' && !e.ctrlKey && !e.metaKey) {
+        onCyclePackage(e.deltaY < 0 ? -1 : 1);
+        return;
+      }
+
+      const at = toImagePoint(e.clientX, e.clientY);
+      if (!at || !image) return;
+
+      setView((current) => {
+        const from = current ?? { x: 0, y: 0, width: image.width, height: image.height };
+        const factor = e.deltaY < 0 ? 1 / ZOOM_STEP : ZOOM_STEP;
+        // Never zoom out past the whole photo, and stop before the window gets
+        // so small that rounding to integer pixels starts to bite.
+        const width = clamp(from.width * factor, image.width * MIN_VIEW_FRACTION, image.width);
+        const height = width * (image.height / image.width);
+
+        // Keep whatever is under the cursor under the cursor.
+        const kx = (at.x - from.x) / from.width;
+        const ky = (at.y - from.y) / from.height;
+        return {
+          x: clamp(at.x - kx * width, 0, image.width - width),
+          y: clamp(at.y - ky * height, 0, image.height - height),
+          width,
+          height,
+        };
+      });
     }
 
     svg.addEventListener('wheel', onWheel, { passive: false });
     return () => svg.removeEventListener('wheel', onWheel);
-  }, [state.tool, onCyclePackage]);
+  }, [state.tool, onCyclePackage, image]);
+
+  // Middle-button drag pans, leaving left-click free for placing things.
+  function handlePointerDown(e: MouseEvent<SVGSVGElement>) {
+    if (e.button !== 1 || !image) return;
+    const p = toImagePoint(e.clientX, e.clientY);
+    if (!p) return;
+    e.preventDefault();
+    panFrom.current = { point: p, view: viewBox };
+  }
+
+  function handlePointerUp() {
+    panFrom.current = null;
+  }
 
   function handleContextMenu(e: MouseEvent<SVGSVGElement>) {
     // Right-click aims the footprint rather than opening the browser menu.
@@ -96,7 +167,8 @@ export function BoardPanel({
     if (!p) return;
     // Clicking a via while tracing pins the point to its centre, so a trace
     // starts or ends exactly on the hole rather than near it.
-    const snapped = state.tool === 'trace' ? snapVia(state.vias, side, p, scale) : null;
+    const snapped =
+      state.tool === 'trace' ? snapVia(state.vias, side, p, scale, viewScale) : null;
     onCanvasClick(side, snapped?.[side] ?? p);
   }
 
@@ -110,6 +182,21 @@ export function BoardPanel({
   const armingArray = Boolean(arraySource && arraySource.side === side);
 
   function handleMouseMove(e: MouseEvent<SVGSVGElement>) {
+    // A pan in progress owns the pointer; the cursor's image coordinate is
+    // computed against the view we started from, so the grabbed point tracks.
+    const pan = panFrom.current;
+    if (pan && image) {
+      const p = toImagePoint(e.clientX, e.clientY);
+      if (!p) return;
+      setView({
+        x: clamp(pan.view.x + (pan.point.x - p.x), 0, image.width - pan.view.width),
+        y: clamp(pan.view.y + (pan.point.y - p.y), 0, image.height - pan.view.height),
+        width: pan.view.width,
+        height: pan.view.height,
+      });
+      return;
+    }
+
     const drawingPad = Boolean(state.draftPad && state.draftPad.side === side);
     const tracing = state.tool === 'trace';
     if (!drawingPad && !placingRound && !armingArray && !tracing && !placingPackage) {
@@ -123,6 +210,7 @@ export function BoardPanel({
   }
 
   function handleMouseLeave() {
+    panFrom.current = null;
     setHover(null);
     onHoverPoint(side, null);
   }
@@ -136,7 +224,7 @@ export function BoardPanel({
   // While tracing: the via the cursor would snap to, and the rubber-band
   // segment from the last placed point to wherever the trace would go next.
   const traceSnap =
-    state.tool === 'trace' && hover ? snapVia(state.vias, side, hover, scale) : null;
+    state.tool === 'trace' && hover ? snapVia(state.vias, side, hover, scale, viewScale) : null;
   const pendingEnd = state.tool === 'trace' ? (traceSnap?.[side] ?? hover) : null;
   const pendingStart = draft && draft.points.length > 0 ? draft.points[draft.points.length - 1] : null;
   const seriesPreview =
@@ -190,11 +278,21 @@ export function BoardPanel({
     <div className="board-panel">
       <div className="board-panel-header">
         <h2>{side === 'front' ? 'Front' : 'Back'}</h2>
-        {image && (
-          <button type="button" onClick={() => onAlign(side)}>
-            {image.corners ? 'Re-align' : 'Align'}
-          </button>
-        )}
+        <div className="board-panel-actions">
+          {view && (
+            <>
+              <span className="export-hint">{Math.round(1 / viewScale)}×</span>
+              <button type="button" onClick={() => setView(null)} title="Fit the whole board">
+                Reset view
+              </button>
+            </>
+          )}
+          {image && (
+            <button type="button" onClick={() => onAlign(side)}>
+              {image.corners ? 'Re-align' : 'Align'}
+            </button>
+          )}
+        </div>
       </div>
       {!image ? (
         <ImageUploader side={side} image={image} onLoad={onLoadImage} />
@@ -204,11 +302,13 @@ export function BoardPanel({
           <div className="board-canvas-wrap">
             <svg
               ref={svgRef}
-              viewBox={`0 0 ${image.width} ${image.height}`}
+              viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
               className={`board-canvas tool-${state.tool}`}
               onClick={handleClick}
               onContextMenu={handleContextMenu}
               onDoubleClick={() => onCanvasDoubleClick(side)}
+              onMouseDown={handlePointerDown}
+              onMouseUp={handlePointerUp}
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
             >
@@ -290,7 +390,7 @@ export function BoardPanel({
                 <circle
                   cx={padDraft.start.x}
                   cy={padDraft.start.y}
-                  r={Math.max(3, image.width * 0.004)}
+                  r={Math.max(3, image.width * 0.004) * viewScale}
                   className="align-corner"
                   pointerEvents="none"
                 />
@@ -304,7 +404,7 @@ export function BoardPanel({
                   height={padPreview.height}
                   fill="rgba(56, 189, 248, 0.25)"
                   stroke="#38bdf8"
-                  strokeWidth={Math.max(1, image.width * 0.003)}
+                  strokeWidth={Math.max(1, image.width * 0.003) * viewScale}
                   strokeDasharray="6 4"
                   pointerEvents="none"
                 />
@@ -358,7 +458,7 @@ export function BoardPanel({
                 <circle
                   cx={traceSnap[side].x}
                   cy={traceSnap[side].y}
-                  r={Math.max(viaRadiusPx(traceSnap.diameter), VIA_GRAB_FLOOR_PX) * 1.4}
+                  r={Math.max(viaRadiusPx(traceSnap.diameter), VIA_GRAB_FLOOR_PX * viewScale) * 1.4}
                   className="via-snap-target"
                   pointerEvents="none"
                 />
@@ -373,7 +473,7 @@ export function BoardPanel({
                   width={r.width}
                   height={r.height}
                   className="size-preview-mark"
-                  strokeWidth={Math.max(1, image.width * 0.002)}
+                  strokeWidth={Math.max(1, image.width * 0.002) * viewScale}
                   pointerEvents="none"
                 />
               ))}
@@ -389,7 +489,7 @@ export function BoardPanel({
                   fill={arraySource ? arraySource.color : '#38bdf8'}
                   fillOpacity={0.4}
                   stroke="#38bdf8"
-                  strokeWidth={Math.max(1, image.width * 0.002)}
+                  strokeWidth={Math.max(1, image.width * 0.002) * viewScale}
                   strokeDasharray="5 3"
                   pointerEvents="none"
                 />
@@ -398,8 +498,8 @@ export function BoardPanel({
               {/* Where the hole being placed on the other side would come out here. */}
               {placingHole && otherSideHover && (
                 <circle
-                  cx={throughBoard(otherSideHover, image.width).x}
-                  cy={throughBoard(otherSideHover, image.width).y}
+                  cx={throughBoard(otherSideHover, image, state.backFlip).x}
+                  cy={throughBoard(otherSideHover, image, state.backFlip).y}
                   r={viaRadiusPx(
                     state.tool === 'hole' ? state.defaultHoleDiameter : state.defaultViaDiameter,
                   )}
@@ -414,7 +514,7 @@ export function BoardPanel({
                 (() => {
                   // Font size is in image pixels, so scale it to the photo to
                   // stay legible whatever the panel is displayed at.
-                  const fs = image.width * 0.022;
+                  const fs = image.width * 0.022 * viewScale;
                   const nearRightEdge = hover.x > image.width * 0.7;
                   return (
                     <g pointerEvents="none">

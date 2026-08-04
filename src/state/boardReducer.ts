@@ -7,6 +7,7 @@ import type {
   PhysicalSize,
   Point,
   RawImage,
+  FlipAxis,
   RoundKind,
   Side,
   Tool,
@@ -15,6 +16,7 @@ import type {
 } from '../types';
 import {
   type Rect,
+  type Size,
   padSeriesRects,
   pointInRect,
   rectFromCorners,
@@ -61,6 +63,7 @@ export type Action =
   | { type: 'TOGGLE_TRACE_VIA'; traceId: string; viaId: string }
   | { type: 'SET_UNIT'; unit: LengthUnit }
   | { type: 'SET_BOARD_SIZE'; boardSize: PhysicalSize | null }
+  | { type: 'SET_BACK_FLIP'; flip: FlipAxis }
   | { type: 'SET_DEFAULT_TRACE_WIDTH'; width: number }
   | { type: 'SET_DEFAULT_DIAMETER'; kind: RoundKind; diameter: number }
   | { type: 'SET_TRACE_WIDTH'; id: string; width: number | undefined }
@@ -98,6 +101,7 @@ export const initialState: BoardState = {
   defaultViaDiameter: 0.4,
   defaultHoleDiameter: 1,
   defaultTestPointDiameter: 0.75,
+  backFlip: 'horizontal',
   packageIndex: 1,
   packageRotated: false,
 };
@@ -111,9 +115,9 @@ function withDefaultDiameter(state: BoardState, kind: RoundKind, value: number):
       : { ...state, defaultViaDiameter: value };
 }
 
-/** Where the board's width lives, for mirroring a point through to the other side. */
-function boardWidthPx(state: BoardState, side: Side): number | null {
-  return state.alignedSize?.width ?? state.images[side]?.width ?? null;
+/** The pixel space a point is mirrored within, or null if it isn't known yet. */
+function boardSizePx(state: BoardState, side: Side): Size | null {
+  return state.alignedSize ?? state.images[side] ?? null;
 }
 
 /** Drop a selection that no longer points at anything that exists. */
@@ -175,7 +179,9 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       const vias = state.vias
         .map((v) => {
           const kept = v[other];
-          const rebuilt = kept ? throughBoard(kept, width) : undefined;
+          const rebuilt = kept
+            ? throughBoard(kept, { width, height }, state.backFlip)
+            : undefined;
           return side === 'front' ? { ...v, front: rebuilt } : { ...v, back: rebuilt };
         })
         .filter((v) => v.front || v.back);
@@ -288,8 +294,8 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       // One drill goes all the way through the board, so placing on one side
       // also places where it emerges on the other. If we don't know the board
       // width yet there's nothing to mirror about, so only this side is placed.
-      const width = boardWidthPx(state, side);
-      const other = width === null ? undefined : throughBoard(point, width);
+      const size = boardSizePx(state, side);
+      const other = size === null ? undefined : throughBoard(point, size, state.backFlip);
 
       const via: Via = {
         id: `${kind}-${state.nextViaNum}`,
@@ -567,6 +573,29 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       };
     }
 
+    case 'SET_BACK_FLIP': {
+      if (action.flip === state.backFlip) return state;
+      const size = boardSizePx(state, 'front') ?? boardSizePx(state, 'back');
+
+      // Changing the flip has to move everything already placed, or the toggle
+      // would only affect future vias and leave existing ones wrong. The side a
+      // via was originally clicked on isn't recorded, so the front position is
+      // treated as authoritative and the back re-derived from it.
+      return {
+        ...state,
+        backFlip: action.flip,
+        vias: size
+          ? state.vias.map((v) =>
+              v.front
+                ? { ...v, back: throughBoard(v.front, size, action.flip) }
+                : v.back
+                  ? { ...v, front: throughBoard(v.back, size, action.flip) }
+                  : v,
+            )
+          : state.vias,
+      };
+    }
+
     case 'SET_BOARD_SIZE':
       return { ...state, boardSize: action.boardSize };
 
@@ -639,6 +668,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         defaultViaDiameter: session.defaultViaDiameter,
         defaultHoleDiameter: session.defaultHoleDiameter,
         defaultTestPointDiameter: session.defaultTestPointDiameter,
+        backFlip: session.backFlip,
         // Tool and footprint choice are UI state, not board data — a restore
         // shouldn't yank the tool out from under you.
         tool: state.tool,

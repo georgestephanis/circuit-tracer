@@ -45,9 +45,10 @@ npm run build   # production build (also type-checks)
      can be repeated into a series.
    - **SMD package** — drops both pads of a common chip footprint in one
      click. See [SMD packages](#smd-packages).
-5. Traces, pads, vias and holes appear in the sidebar lists, where you can
-   rename them (e.g. give a trace a net name), set an exact width/diameter, or
-   click to select them. **Delete/Backspace** removes the selected item.
+5. Everything you place appears in a collapsible sidebar section — Traces,
+   Pads, Test points, Vias, Holes — each with a count and its own scroll area.
+   Rename items (e.g. give a trace a net name), set an exact width or diameter,
+   flag ground, or click to select. **Delete/Backspace** removes the selection.
 6. Enter a board name and click **Export SVG** once both images are uploaded.
 
 Work is autosaved as you go — see [Autosave and resuming](#autosave-and-resuming).
@@ -94,15 +95,56 @@ opposite panel shows a dashed ghost of where it would come out. There is no
 linking step — every via and hole is created as one object with a position on
 both sides.
 
-The exit position is derived by mirroring across the board's vertical axis
-(`x → boardWidth - x`), which assumes **the back photo was taken by flipping the
-board left-to-right**. If you flipped it top-to-bottom instead, the mirrored
-positions will be wrong; the mapping lives in one place, `throughBoard()` in
-`src/lib/geometry.ts`.
+The exit position is derived by mirroring the point about one axis — **which
+one depends on how you turned the board over**, so it's a setting rather than a
+guess. Pick it in the Scale panel:
+
+| Setting | Mirrors | Use when |
+| --- | --- | --- |
+| **Left-to-right** | `x → width - x` | you turned the board about its vertical axis (the usual way) |
+| **End-over-end** | `y → height - y` | you turned it about its horizontal axis |
+
+Changing the setting **moves every via already placed**, so if the two sides
+don't line up, switching it fixes the whole board rather than just future
+placements. The front position is treated as authoritative and the back
+re-derived from it.
 
 A list entry reads *(both sides)* normally, or *(one side)* if it lost its other
 half — which only happens if the board width wasn't known yet when it was
 placed (no image loaded and no alignment done).
+
+## Zoom, pan, and keyboard
+
+A board photo is a few thousand pixels wide shown at panel size, so a 0.4 mm
+via can land on two or three screen pixels. Each panel has its own view:
+
+- **Scroll** to zoom about the cursor, up to 50×. In SMD package mode the wheel
+  is busy stepping through footprints, so **Ctrl/Cmd+scroll** zooms there.
+- **Middle-click and drag** to pan. Left-click stays free for placing things.
+- The header shows the current zoom and a **Reset view** button. Loading or
+  re-aligning a photo resets the view, since it's a new pixel space.
+
+Overlay chrome — labels, previews, the snap halo — is drawn at a constant size
+on screen rather than in image pixels, so zooming in makes the *board* bigger,
+not the annotations. Via snapping tightens as you zoom in for the same reason.
+
+### Shortcuts
+
+| Key | Does |
+| --- | --- |
+| `1`–`6` | Trace, Via, Hole, Pad, Test point, SMD package |
+| `G` | Toggle ground on the selected via, hole, or pad |
+| `Enter` | Finish the current trace |
+| `Esc` | Cancel the in-progress trace, pad, or pad series |
+| `Delete` / `Backspace` | Delete the selection |
+| `Ctrl`/`Cmd` `+Z` | Undo |
+| `Shift`+`Ctrl`/`Cmd` `+Z`, or `Ctrl`/`Cmd` `+Y` | Redo |
+
+Undo covers every change to the board, up to 50 steps. It deliberately steps
+*over* things that only change what you're looking at — switching tools,
+selecting an item, cycling footprints — because having those consume an undo
+press makes the stack feel broken. Restoring a session or resetting the board
+clears the history, since there's nothing coherent to go back to.
 
 ## Judging sizes against the photo
 
@@ -119,8 +161,9 @@ dial a number in until it matches the copper you're looking at. Existing items
 are the same comparison: edit a width or diameter in its sidebar list and it
 redraws on the photo at true scale.
 
-The scroll wheel does **not** resize anything. Its only job is stepping through
-the footprint catalog while the SMD package tool is active.
+The scroll wheel does **not** resize anything — it zooms, or steps through the
+footprint catalog in SMD package mode. See [Zoom, pan, and
+keyboard](#zoom-pan-and-keyboard).
 
 ## Pads
 
@@ -180,7 +223,7 @@ adding a package is a one-line change.
 ## Ground
 
 Vias, holes, and pads can be flagged as **GND** with the checkbox in their
-sidebar list. A grounded item is drawn in a single distinct ground color
+sidebar list, or by selecting one on the canvas and pressing `G`. A grounded item is drawn in a single distinct ground color
 whatever color it would otherwise have, with a dashed outline.
 
 Ground items are **implicitly one net**: they're all tied together without

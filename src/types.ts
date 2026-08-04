@@ -101,6 +101,12 @@ export interface Pad {
 
 export type PadShape = 'rect' | 'round';
 
+/**
+ * Which axis the board was flipped about to photograph its back.
+ * `horizontal` = turned left-to-right; `vertical` = turned end-over-end.
+ */
+export type FlipAxis = 'horizontal' | 'vertical';
+
 export type Tool = 'trace' | 'via' | 'hole' | 'pad' | 'testpoint' | 'package';
 
 /** Anything sized by a diameter rather than a width — see `SET_DEFAULT_DIAMETER`. */
@@ -146,6 +152,11 @@ export interface BoardState {
   defaultHoleDiameter: number;
   /** Default physical diameter for new test points, in `unit`. */
   defaultTestPointDiameter: number;
+  /**
+   * How the board was turned over between the two photos, which decides where
+   * a hole drilled on one side comes out on the other.
+   */
+  backFlip: FlipAxis;
   /** Index into `SMD_PACKAGES` for the footprint the package tool will place. */
   packageIndex: number;
   /** Whether that footprint is turned a quarter turn from its default axis. */

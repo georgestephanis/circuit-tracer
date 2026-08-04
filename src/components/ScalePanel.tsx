@@ -1,4 +1,4 @@
-import type { LengthUnit, PhysicalSize, RoundKind } from '../types';
+import type { FlipAxis, LengthUnit, PhysicalSize, RoundKind } from '../types';
 import { ASSUMED_BOARD_WIDTH_MM, UNIT_LABELS, convertLength, formatLength } from '../lib/scale';
 import { NumberField } from './NumberField';
 
@@ -11,10 +11,12 @@ interface Props {
   defaultViaDiameter: number;
   defaultHoleDiameter: number;
   defaultTestPointDiameter: number;
+  backFlip: FlipAxis;
   onSetUnit: (unit: LengthUnit) => void;
   onSetBoardSize: (size: PhysicalSize | null) => void;
   onSetDefaultTraceWidth: (width: number) => void;
   onSetDefaultDiameter: (kind: RoundKind, diameter: number) => void;
+  onSetBackFlip: (flip: FlipAxis) => void;
 }
 
 export function ScalePanel({
@@ -24,10 +26,12 @@ export function ScalePanel({
   defaultViaDiameter,
   defaultHoleDiameter,
   defaultTestPointDiameter,
+  backFlip,
   onSetUnit,
   onSetBoardSize,
   onSetDefaultTraceWidth,
   onSetDefaultDiameter,
+  onSetBackFlip,
 }: Props) {
   function setDimension(which: 'width' | 'height', value: number | undefined) {
     const current = boardSize ?? { width: 0, height: 0 };
@@ -71,6 +75,14 @@ export function ScalePanel({
         </label>
       </div>
 
+      <label className="field">
+        <span>Back photo taken by turning the board</span>
+        <select value={backFlip} onChange={(e) => onSetBackFlip(e.target.value as FlipAxis)}>
+          <option value="horizontal">Left-to-right (about the vertical axis)</option>
+          <option value="vertical">End-over-end (about the horizontal axis)</option>
+        </select>
+      </label>
+
       <div className="field-row">
         <label className="field">
           <span>Default trace width</span>
@@ -110,6 +122,11 @@ export function ScalePanel({
       <p className="list-empty">
         These sizes are previewed at true scale under the cursor while the matching tool is
         active, so you can compare them against the board before placing anything.
+      </p>
+      <p className="list-empty">
+        The flip setting decides where a via drilled on one side comes out on the other.
+        Changing it moves every via already placed, so if the two sides don't line up, try the
+        other option.
       </p>
     </div>
   );

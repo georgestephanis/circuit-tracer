@@ -24,6 +24,10 @@ interface Props {
   onCancelDraft: () => void;
   onDeleteSelected: () => void;
   onStartPadArray: (padId: string, count: number) => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 export function Toolbar({
@@ -43,6 +47,10 @@ export function Toolbar({
   onCancelDraft,
   onDeleteSelected,
   onStartPadArray,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }: Props) {
   const [count, setCount] = useState(4);
 
@@ -56,7 +64,9 @@ export function Toolbar({
         >
           Trace
         </button>
-        <button type="button" className={tool === 'via' ? 'active' : ''} onClick={() => onSetTool('via')}>
+        <button type="button" className={tool === 'via' ? 'active' : ''} onClick={() => onSetTool('via')}
+          title="Via (2)"
+        >
           Via
         </button>
         <button
@@ -66,7 +76,9 @@ export function Toolbar({
         >
           Hole
         </button>
-        <button type="button" className={tool === 'pad' ? 'active' : ''} onClick={() => onSetTool('pad')}>
+        <button type="button" className={tool === 'pad' ? 'active' : ''} onClick={() => onSetTool('pad')}
+          title="Pad (4)"
+        >
           Pad
         </button>
         <button
@@ -183,7 +195,23 @@ export function Toolbar({
       )}
 
       <div className="toolbar-group">
-        <button type="button" onClick={onDeleteSelected} disabled={!hasSelection}>
+        <button type="button" onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl/Cmd+Z)">
+          Undo
+        </button>
+        <button
+          type="button"
+          onClick={onRedo}
+          disabled={!canRedo}
+          title="Redo (Shift+Ctrl/Cmd+Z)"
+        >
+          Redo
+        </button>
+        <button
+          type="button"
+          onClick={onDeleteSelected}
+          disabled={!hasSelection}
+          title="Delete selected (Del)"
+        >
           Delete selected
         </button>
       </div>

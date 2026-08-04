@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { boardReducer, initialState } from './state/boardReducer';
-import type { BoardImage, Point, Side } from './types';
+import { historyReducer, initialHistory } from './state/history';
+import type { BoardImage, Point, Side, Tool } from './types';
 import { BoardPanel } from './components/BoardPanel';
 import { AlignOverlay } from './components/AlignOverlay';
 import { Toolbar } from './components/Toolbar';
 import { TraceList } from './components/TraceList';
 import { ViaList } from './components/ViaList';
 import { PadList } from './components/PadList';
+import { SidebarSection } from './components/SidebarSection';
 import { ScalePanel } from './components/ScalePanel';
 import { ExportBar } from './components/ExportBar';
 import { RestoreBanner } from './components/RestoreBanner';
@@ -27,8 +28,21 @@ import './App.css';
 /** Debounce autosaves so dragging/typing doesn't hammer localStorage. */
 const AUTOSAVE_DELAY_MS = 600;
 
+/** Number keys pick a tool, in toolbar order. */
+const TOOL_KEYS: Record<string, Tool | undefined> = {
+  '1': 'trace',
+  '2': 'via',
+  '3': 'hole',
+  '4': 'pad',
+  '5': 'testpoint',
+  '6': 'package',
+};
+
 function App() {
-  const [state, dispatch] = useReducer(boardReducer, initialState);
+  const [history, dispatch] = useReducer(historyReducer, initialHistory);
+  const state = history.present;
+  const canUndo = history.past.length > 0;
+  const canRedo = history.future.length > 0;
   /** Cursor position while placing a via/hole, so the other side can preview the exit. */
   const [holeHover, setHoleHover] = useState<{ side: Side; point: Point } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -47,6 +61,10 @@ function App() {
                         state.images.back?.raw?.src ?? state.images.back?.src ?? null),
     [state.images.front, state.images.back],
   );
+
+  // Test points are pads, but listing them among the rectangles buries them.
+  const rectPads = state.pads.filter((p) => p.shape !== 'round');
+  const testPoints = state.pads.filter((p) => p.shape === 'round');
 
   const hasDraft = Boolean(state.draftTrace);
   const hasSelection = Boolean(state.selection);
@@ -218,6 +236,37 @@ function App() {
         return;
       }
 
+      // Undo/redo, in both the conventional spellings.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        dispatch({ type: e.shiftKey ? 'REDO' : 'UNDO' });
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        dispatch({ type: 'REDO' });
+        return;
+      }
+      // Everything below is a bare key, so don't swallow browser shortcuts.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const toolKey = TOOL_KEYS[e.key];
+      if (toolKey) {
+        dispatch({ type: 'SET_TOOL', tool: toolKey });
+        return;
+      }
+
+      if (e.key.toLowerCase() === 'g') {
+        // Ground the selection, so a run of them can be flagged from the canvas
+        // instead of hunting checkboxes in the sidebar.
+        const sel = state.selection;
+        if (sel && sel.kind !== 'trace') {
+          e.preventDefault();
+          dispatch({ type: 'TOGGLE_GROUND', kind: sel.kind, id: sel.id });
+        }
+        return;
+      }
+
       if (e.key === 'Enter') {
         if (state.draftTrace) dispatch({ type: 'FINISH_TRACE' });
       } else if (e.key === 'Escape') {
@@ -278,6 +327,10 @@ function App() {
         onCancelDraft={() => dispatch({ type: 'CANCEL_DRAFT' })}
         onDeleteSelected={() => dispatch({ type: 'DELETE_SELECTED' })}
         onStartPadArray={(padId, count) => dispatch({ type: 'START_PAD_ARRAY', padId, count })}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={() => dispatch({ type: 'UNDO' })}
+        onRedo={() => dispatch({ type: 'REDO' })}
       />
 
       <main className="board-area">
@@ -350,6 +403,7 @@ function App() {
             defaultViaDiameter={state.defaultViaDiameter}
             defaultHoleDiameter={state.defaultHoleDiameter}
             defaultTestPointDiameter={state.defaultTestPointDiameter}
+            backFlip={state.backFlip}
             onSetUnit={(unit) => dispatch({ type: 'SET_UNIT', unit })}
             onSetBoardSize={(boardSize) => dispatch({ type: 'SET_BOARD_SIZE', boardSize })}
             onSetDefaultTraceWidth={(width) =>
@@ -358,10 +412,10 @@ function App() {
             onSetDefaultDiameter={(kind, diameter) =>
               dispatch({ type: 'SET_DEFAULT_DIAMETER', kind, diameter })
             }
+            onSetBackFlip={(flip) => dispatch({ type: 'SET_BACK_FLIP', flip })}
           />
         </div>
-        <div className="sidebar-section">
-          <h3>Traces</h3>
+        <SidebarSection title="Traces" count={state.traces.length}>
           <TraceList
             traces={state.traces}
             selection={state.selection}
@@ -371,11 +425,10 @@ function App() {
             onRename={(id, label) => dispatch({ type: 'RENAME_TRACE', id, label })}
             onSetWidth={(id, width) => dispatch({ type: 'SET_TRACE_WIDTH', id, width })}
           />
-        </div>
-        <div className="sidebar-section">
-          <h3>Pads</h3>
+        </SidebarSection>
+        <SidebarSection title="Pads" count={rectPads.length}>
           <PadList
-            pads={state.pads}
+            pads={rectPads}
             selection={state.selection}
             unit={state.unit}
             scaleFor={(pad) => pxPerUnit(state.images[pad.side], state.boardSize, state.unit)}
@@ -384,10 +437,25 @@ function App() {
             onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
             onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'pad', id })}
           />
-        </div>
+        </SidebarSection>
+        <SidebarSection title="Test points" count={testPoints.length}>
+          <PadList
+            pads={testPoints}
+            selection={state.selection}
+            unit={state.unit}
+            scaleFor={(pad) => pxPerUnit(state.images[pad.side], state.boardSize, state.unit)}
+            onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
+            onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
+            onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
+            onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'pad', id })}
+          />
+        </SidebarSection>
         {(['via', 'hole'] as const).map((kind) => (
-          <div className="sidebar-section" key={kind}>
-            <h3>{kind === 'via' ? 'Vias' : 'Holes'}</h3>
+          <SidebarSection
+            key={kind}
+            title={kind === 'via' ? 'Vias' : 'Holes'}
+            count={state.vias.filter((v) => v.kind === kind).length}
+          >
             <ViaList
               vias={state.vias.filter((v) => v.kind === kind)}
               kind={kind}
@@ -400,7 +468,7 @@ function App() {
               }
               onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'via', id })}
             />
-          </div>
+          </SidebarSection>
         ))}
       </aside>
 

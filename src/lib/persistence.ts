@@ -1,13 +1,24 @@
-import type { BoardState, LengthUnit, Pad, PhysicalSize, Point, Side, Trace, Via } from '../types';
+import type {
+  BoardState,
+  FlipAxis,
+  LengthUnit,
+  Pad,
+  PhysicalSize,
+  Point,
+  Side,
+  Trace,
+  Via,
+} from '../types';
 
 const STORAGE_KEY = 'circuit-tracer/sessions/v1';
 // v2 split vias and holes: every via carries a `kind`, and holes have their own
 // default diameter. v1 sessions have no way to say which is which, so they're
 // dropped by the version filter in readAll() rather than guessed at.
 //
-// v3 added round pads (test points) and the ground flag. Both read safely on
-// older data — a pad with no `shape` is a rect, and no `ground` is not ground —
-// so v2 sessions are normalized on load rather than discarded.
+// v3 added round pads (test points), the ground flag, and the back-flip axis.
+// All read safely on older data — a pad with no `shape` is a rect, no `ground`
+// is not ground, and the flip defaults to the axis that was hardcoded before it
+// was configurable — so v2 sessions are normalized on load, not discarded.
 const SCHEMA_VERSION = 3;
 /** Versions whose data can be read as-is once normalized by `migrate()`. */
 const READABLE_VERSIONS = [2, SCHEMA_VERSION];
@@ -46,6 +57,7 @@ export interface SavedSession {
   defaultViaDiameter: number;
   defaultHoleDiameter: number;
   defaultTestPointDiameter: number;
+  backFlip: FlipAxis;
   alignment: Partial<Record<Side, SavedAlignment>>;
 }
 
@@ -97,6 +109,7 @@ function migrate(s: SavedSession): SavedSession {
     version: SCHEMA_VERSION,
     pads: s.pads.map((p) => ({ ...p, shape: p.shape ?? 'rect' })),
     defaultTestPointDiameter: s.defaultTestPointDiameter ?? 0.75,
+    backFlip: s.backFlip ?? 'horizontal',
   };
 }
 
@@ -169,6 +182,7 @@ export function snapshotFromState(state: BoardState): SavedSession {
     defaultViaDiameter: state.defaultViaDiameter,
     defaultHoleDiameter: state.defaultHoleDiameter,
     defaultTestPointDiameter: state.defaultTestPointDiameter,
+    backFlip: state.backFlip,
     alignment,
   };
 }

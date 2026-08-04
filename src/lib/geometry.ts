@@ -1,4 +1,10 @@
-import type { Point } from '../types';
+import type { FlipAxis, Point } from '../types';
+
+/** Just the dimensions of an image or board, in pixels. */
+export interface Size {
+  width: number;
+  height: number;
+}
 
 export interface Rect {
   x: number;
@@ -79,12 +85,15 @@ export function padSeriesRects(source: Rect, end: Point, count: number): Rect[] 
 /**
  * Where a point on one side of the board comes out on the other side.
  *
- * Assumes the back photo was taken by flipping the board left-to-right about
- * its vertical axis — the usual way you turn a board over — so the two sides
- * share a y axis and mirror in x.
+ * Which axis it mirrors about depends on how the board was turned over between
+ * photos, which the app can't infer — hence `flip`, set by the user. Turning it
+ * left-to-right (the common case) mirrors x and shares y; end-over-end mirrors
+ * y and shares x.
  */
-export function throughBoard(p: Point, boardWidth: number): Point {
-  return { x: boardWidth - p.x, y: p.y };
+export function throughBoard(p: Point, size: Size, flip: FlipAxis): Point {
+  return flip === 'vertical'
+    ? { x: p.x, y: size.height - p.y }
+    : { x: size.width - p.x, y: p.y };
 }
 
 /** Floor on a via's grab radius, so a tiny via is still easy to hit. */
@@ -103,6 +112,12 @@ export function snapVia<T extends { front?: Point; back?: Point; diameter: numbe
   side: 'front' | 'back',
   point: Point,
   pxPerUnit: number,
+  /**
+   * Image pixels per unit of the visible window — pass the zoom factor so the
+   * floor stays a constant distance *on screen*. Without it, zooming in to
+   * place something precisely would make snapping grabbier, not less.
+   */
+  zoom = 1,
 ): T | null {
   let best: T | null = null;
   let bestDist = Infinity;
@@ -110,7 +125,7 @@ export function snapVia<T extends { front?: Point; back?: Point; diameter: numbe
     const p = via[side];
     if (!p) continue;
     const d = distance(p, point);
-    const reach = Math.max((via.diameter / 2) * pxPerUnit, VIA_GRAB_FLOOR_PX);
+    const reach = Math.max((via.diameter / 2) * pxPerUnit, VIA_GRAB_FLOOR_PX * zoom);
     if (d <= reach && d < bestDist) {
       bestDist = d;
       best = via;

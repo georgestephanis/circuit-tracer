@@ -32,6 +32,7 @@ behavior works because it compiles.
 src/
   App.tsx                  root: owns the reducer, dialogs, autosave, keyboard
   state/boardReducer.ts    ALL board mutations — one reducer, one Action union
+  state/history.ts         undo/redo wrapper around that reducer
   types.ts                 BoardState and the domain types
   lib/geometry.ts          pure geometry: rects, hit-testing, mirroring, series
   lib/packages.ts          SMD footprint catalog and its pad layout math
@@ -45,9 +46,13 @@ src/
 The shape to preserve:
 
 - **All board state lives in `boardReducer`.** Components hold only transient UI
-  state (hover position, a form's in-progress value). If you need new board
-  state, add it to `BoardState` and a case to the `Action` union — don't reach
-  for context or a store.
+  state (hover position, zoom/pan window, a form's in-progress value). If you
+  need new board state, add it to `BoardState` and a case to the `Action`
+  union — don't reach for context or a store.
+- **`historyReducer` wraps `boardReducer`**, so undo comes free with that rule:
+  anything dispatched is undoable unless listed in `TRANSPARENT` (view-only, so
+  undo steps over it) or `RESETS` (clears the stack). When you add an action,
+  decide which bucket it's in — the default, being undoable, is usually right.
 - **Components don't dispatch.** They receive `on*` callbacks from `App.tsx`,
   which is the only place `dispatch` is called. Keep it that way; it's what
   makes the reducer readable in isolation.
@@ -83,9 +88,11 @@ sides. `ADD_VIA` mirrors the clicked point with `throughBoard()`, and
 than orphaning it. `front`/`back` stay optional only for the case where the
 board width wasn't known at placement time.
 
-`throughBoard()` assumes the board is flipped **left-to-right** between photos
-(`x → boardWidth - x`). It is the single point of truth for that assumption —
-if it ever needs to be configurable, change it there, not at call sites.
+Which axis it mirrors about is `state.backFlip`, since the app can't infer how
+the board was turned over. `throughBoard()` is the single point of truth — pass
+the flip through rather than reimplementing the mirror at a call site. Note that
+`SET_BACK_FLIP` also **rewrites every existing via**: a toggle that only
+affected future placements would be useless for fixing a board already traced.
 
 ### Sizes are physical, never pixels — except pads
 
@@ -168,9 +175,13 @@ either way the README's autosave section should say which happened.
   scrolling. `BoardPanel` attaches a non-passive `wheel` listener by hand —
   don't "simplify" it back to the JSX prop.
 - **The wheel does not resize anything.** It was tried and removed as
-  confusing; its only job is stepping through the SMD footprint catalog while
-  that tool is active. Sizes are typed, and judged against the photo via the
+  confusing. It zooms — except in package mode, where it cycles footprints and
+  Ctrl/Cmd+wheel zooms. Sizes are typed, and judged against the photo via the
   true-scale cursor preview. Don't reintroduce wheel sizing.
+- **Zoom is a viewBox, so screen-constant sizes must be divided out.** Anything
+  meant to stay the same size on screen — label text, hairlines, the snap
+  radius floor — multiplies by `viewScale`. Forget it and annotations balloon
+  as you zoom in, and snapping gets grabbier exactly when you wanted precision.
 - Right-click is captured (rotate footprint) *only* in package mode; every
   other tool must leave the browser context menu alone.
 - The keyboard handler in `App.tsx` ignores events from `INPUT`/`TEXTAREA`, and
