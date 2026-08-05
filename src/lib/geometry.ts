@@ -191,13 +191,31 @@ export function segmentsIntersect(p1: Point, p2: Point, p3: Point, p4: Point): b
   return false;
 }
 
-export function polylineIntersectsPolyline(a: Point[], b: Point[]): boolean {
+/**
+ * Shortest distance between two segments — 0 if they cross. Two straight
+ * segments' closest approach is always at one of the four endpoints, so this
+ * only needs point-to-segment checks once the crossing case is ruled out.
+ */
+function segmentDistance(a1: Point, a2: Point, b1: Point, b2: Point): number {
+  if (segmentsIntersect(a1, a2, b1, b2)) return 0;
+  return Math.min(
+    distanceToPolyline(b1, [a1, a2]),
+    distanceToPolyline(b2, [a1, a2]),
+    distanceToPolyline(a1, [b1, b2]),
+    distanceToPolyline(a2, [b1, b2]),
+  );
+}
+
+/** Shortest distance between two polylines — 0 if they cross anywhere. */
+export function polylineDistance(a: Point[], b: Point[]): number {
+  let best = Infinity;
   for (let i = 1; i < a.length; i++) {
     for (let j = 1; j < b.length; j++) {
-      if (segmentsIntersect(a[i - 1], a[i], b[j - 1], b[j])) return true;
+      best = Math.min(best, segmentDistance(a[i - 1], a[i], b[j - 1], b[j]));
+      if (best === 0) return 0;
     }
   }
-  return false;
+  return best;
 }
 
 function segmentIntersectsRect(a: Point, b: Point, rect: Rect): boolean {
@@ -215,14 +233,26 @@ function segmentIntersectsRect(a: Point, b: Point, rect: Rect): boolean {
   return false;
 }
 
-/** True if a polyline (e.g. a trace) touches a pad's copper anywhere along its length. */
-export function polylineTouchesPad(points: Point[], pad: Rect & { shape: PadShape }): boolean {
+/**
+ * True if a polyline (e.g. a trace) touches a pad's copper anywhere along its
+ * length. `margin` is the polyline's own half-width in the same pixel space —
+ * a trace is a stroked line, not an infinitely thin one, so its copper
+ * reaches `margin` past its centerline on either side.
+ */
+export function polylineTouchesPad(
+  points: Point[],
+  pad: Rect & { shape: PadShape },
+  margin = 0,
+): boolean {
   if (pad.shape === 'round') {
-    return distanceToPolyline(padCenter(pad), points) <= pad.width / 2;
+    return distanceToPolyline(padCenter(pad), points) <= pad.width / 2 + margin;
   }
-  if (points.some((p) => pointInRect(p, pad))) return true;
+  const rect: Rect = margin
+    ? { x: pad.x - margin, y: pad.y - margin, width: pad.width + margin * 2, height: pad.height + margin * 2 }
+    : pad;
+  if (points.some((p) => pointInRect(p, rect))) return true;
   for (let i = 1; i < points.length; i++) {
-    if (segmentIntersectsRect(points[i - 1], points[i], pad)) return true;
+    if (segmentIntersectsRect(points[i - 1], points[i], rect)) return true;
   }
   return false;
 }

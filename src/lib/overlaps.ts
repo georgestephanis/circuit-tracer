@@ -4,7 +4,7 @@ import {
   circlesOverlap,
   distanceToPolyline,
   padsOverlap,
-  polylineIntersectsPolyline,
+  polylineDistance,
   polylineTouchesPad,
 } from './geometry';
 import { pxPerUnit } from './scale';
@@ -67,6 +67,17 @@ function viaRadiusPx(diameter: number, scale: number): number {
 }
 
 /**
+ * A trace's on-screen half-width in image pixels — matches BoardPanel's own
+ * sizing. A trace is drawn as a stroked line, not an infinitely thin one, so
+ * its copper reaches this far past its centerline on either side; two things
+ * "touch" once they're within their combined half-widths of each other, not
+ * only when their bare centerlines literally cross.
+ */
+function traceHalfWidthPx(width: number | undefined, defaultWidth: number, scale: number): number {
+  return Math.max(1, (width ?? defaultWidth) * scale) / 2;
+}
+
+/**
  * Every cluster of traces/pads/vias whose copper touches without being wired
  * into the same net — candidates for merging into one shared shape.
  *
@@ -87,25 +98,29 @@ export function findOverlapGroups(state: BoardState): OverlapGroup[] {
     const vias = state.vias.filter((v) => v[side]);
 
     for (let i = 0; i < traces.length; i++) {
+      const halfI = traceHalfWidthPx(traces[i].width, state.defaultTraceWidth, scale);
       for (let j = i + 1; j < traces.length; j++) {
-        if (polylineIntersectsPolyline(traces[i].points, traces[j].points)) {
+        const halfJ = traceHalfWidthPx(traces[j].width, state.defaultTraceWidth, scale);
+        if (polylineDistance(traces[i].points, traces[j].points) <= halfI + halfJ) {
           mergeUf.union(netOf(traceKey(traces[i].id)), netOf(traceKey(traces[j].id)));
         }
       }
     }
 
     for (const t of traces) {
+      const half = traceHalfWidthPx(t.width, state.defaultTraceWidth, scale);
       for (const p of pads) {
-        if (polylineTouchesPad(t.points, p)) {
+        if (polylineTouchesPad(t.points, p, half)) {
           mergeUf.union(netOf(traceKey(t.id)), netOf(padKey(p.id)));
         }
       }
     }
 
     for (const t of traces) {
+      const half = traceHalfWidthPx(t.width, state.defaultTraceWidth, scale);
       for (const v of vias) {
         const center = v[side]!;
-        if (distanceToPolyline(center, t.points) <= viaRadiusPx(v.diameter, scale)) {
+        if (distanceToPolyline(center, t.points) <= viaRadiusPx(v.diameter, scale) + half) {
           mergeUf.union(netOf(traceKey(t.id)), netOf(viaKey(v.id)));
         }
       }
