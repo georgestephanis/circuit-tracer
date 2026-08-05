@@ -267,6 +267,22 @@
   stroke-dasharray: 3 2;
 }
 
+/* The overlap finder's current candidate — a marching-ants halo, not a fill,
+   so it never hides the color it's asking you to merge. */
+.overlap-highlight {
+  fill: none;
+  stroke: #fbbf24;
+  stroke-width: 3;
+  stroke-dasharray: 6 4;
+  animation: overlap-marching 0.6s linear infinite;
+}
+
+@keyframes overlap-marching {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
 /* Size readout: dark halo first, so it stays legible over any photo. */
 .size-hint {
   fill: #f8fafc;

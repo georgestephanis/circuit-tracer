@@ -11,8 +11,10 @@ import { SidebarSection } from './components/SidebarSection';
 import { ScalePanel } from './components/ScalePanel';
 import { ExportBar } from './components/ExportBar';
 import { RestoreBanner } from './components/RestoreBanner';
+import { OverlapBanner } from './components/OverlapBanner';
 import { buildCombinedSvg, downloadSvg } from './lib/svgExport';
 import { loadImageElement, quadOutputSize, warpPerspective } from './lib/homography';
+import { findOverlapGroups, type OverlapGroup } from './lib/overlaps';
 import { pxPerUnit } from './lib/scale';
 import {
   clearSession,
@@ -59,6 +61,17 @@ function App() {
   const [overlayOpacity, setOverlayOpacity] = useState(1);
   /** Session keys we've already offered to restore, so a dismissal sticks. */
   const offeredKeys = useRef<Set<string>>(new Set());
+  // The overlap finder's run, stepped through one candidate at a time.
+  const [overlapGroups, setOverlapGroups] = useState<OverlapGroup[]>([]);
+  const [overlapIndex, setOverlapIndex] = useState(0);
+  const currentOverlap = overlapGroups[overlapIndex] ?? null;
+  const overlapHighlight = currentOverlap
+    ? {
+        traces: new Set(currentOverlap.traceIds),
+        pads: new Set(currentOverlap.padIds),
+        vias: new Set(currentOverlap.viaIds),
+      }
+    : null;
 
   const sessionKey = useMemo(
     () => sessionKeyFor(state.images.front?.raw?.src ?? state.images.front?.src ?? null,
@@ -218,6 +231,28 @@ function App() {
     setOffer(null);
   }
 
+  function handleFindOverlaps() {
+    const groups = findOverlapGroups(state);
+    setOverlapGroups(groups);
+    setOverlapIndex(0);
+    if (groups.length === 0) window.alert('No overlapping copper found outside existing nets.');
+  }
+
+  function handleMergeOverlap() {
+    if (!currentOverlap) return;
+    dispatch({ type: 'MERGE_OVERLAP', ...currentOverlap });
+    setOverlapIndex((i) => i + 1);
+  }
+
+  function handleSkipOverlap() {
+    setOverlapIndex((i) => i + 1);
+  }
+
+  function handleCloseOverlaps() {
+    setOverlapGroups([]);
+    setOverlapIndex(0);
+  }
+
   function handleExport() {
     const boardName = state.boardName;
     try {
@@ -312,6 +347,17 @@ function App() {
         />
       )}
 
+      {currentOverlap && (
+        <OverlapBanner
+          group={currentOverlap}
+          index={overlapIndex}
+          total={overlapGroups.length}
+          onMerge={handleMergeOverlap}
+          onSkip={handleSkipOverlap}
+          onClose={handleCloseOverlaps}
+        />
+      )}
+
       <Toolbar
         tool={state.tool}
         hasDraft={hasDraft}
@@ -337,6 +383,7 @@ function App() {
         onRedo={() => dispatch({ type: 'REDO' })}
         overlayOpacity={overlayOpacity}
         onSetOverlayOpacity={setOverlayOpacity}
+        onFindOverlaps={handleFindOverlaps}
       />
 
       <main className="board-area">
@@ -368,6 +415,7 @@ function App() {
               )
             }
             overlayOpacity={overlayOpacity}
+            highlight={overlapHighlight}
           />
         ))}
       </main>

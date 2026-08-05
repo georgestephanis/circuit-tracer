@@ -123,6 +123,110 @@ export function throughBoard(p: Point, size: Size, flip: FlipAxis): Point {
     : { x: size.width - p.x, y: p.y };
 }
 
+export function rectsOverlap(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+export function circlesOverlap(c1: Point, r1: number, c2: Point, r2: number): boolean {
+  return distance(c1, c2) <= r1 + r2;
+}
+
+export function circleIntersectsRect(c: Point, r: number, rect: Rect): boolean {
+  const closestX = Math.max(rect.x, Math.min(c.x, rect.x + rect.width));
+  const closestY = Math.max(rect.y, Math.min(c.y, rect.y + rect.height));
+  return distance(c, { x: closestX, y: closestY }) <= r;
+}
+
+function padCenter(pad: Rect): Point {
+  return { x: pad.x + pad.width / 2, y: pad.y + pad.height / 2 };
+}
+
+/** True if two pads' copper areas overlap — a round pad is its inscribed circle. */
+export function padsOverlap(a: Rect & { shape: PadShape }, b: Rect & { shape: PadShape }): boolean {
+  if (a.shape !== 'round' && b.shape !== 'round') return rectsOverlap(a, b);
+  if (a.shape === 'round' && b.shape === 'round') {
+    return circlesOverlap(padCenter(a), a.width / 2, padCenter(b), b.width / 2);
+  }
+  const rect = a.shape === 'round' ? b : a;
+  const circle = a.shape === 'round' ? a : b;
+  return circleIntersectsRect(padCenter(circle), circle.width / 2, rect);
+}
+
+/** True if a circle (e.g. a via) touches a pad's copper. */
+export function circleTouchesPad(
+  pad: Rect & { shape: PadShape },
+  center: Point,
+  radius: number,
+): boolean {
+  if (pad.shape === 'round') return circlesOverlap(padCenter(pad), pad.width / 2, center, radius);
+  return circleIntersectsRect(center, radius, pad);
+}
+
+/** Orientation of the turn a->b->c makes: 0 collinear, 1 clockwise, 2 counter-clockwise. */
+function orientation(a: Point, b: Point, c: Point): number {
+  const val = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+  if (Math.abs(val) < 1e-9) return 0;
+  return val > 0 ? 1 : 2;
+}
+
+function onSegment(a: Point, b: Point, c: Point): boolean {
+  return (
+    Math.min(a.x, c.x) <= b.x &&
+    b.x <= Math.max(a.x, c.x) &&
+    Math.min(a.y, c.y) <= b.y &&
+    b.y <= Math.max(a.y, c.y)
+  );
+}
+
+export function segmentsIntersect(p1: Point, p2: Point, p3: Point, p4: Point): boolean {
+  const o1 = orientation(p1, p2, p3);
+  const o2 = orientation(p1, p2, p4);
+  const o3 = orientation(p3, p4, p1);
+  const o4 = orientation(p3, p4, p2);
+  if (o1 !== o2 && o3 !== o4) return true;
+  if (o1 === 0 && onSegment(p1, p3, p2)) return true;
+  if (o2 === 0 && onSegment(p1, p4, p2)) return true;
+  if (o3 === 0 && onSegment(p3, p1, p4)) return true;
+  if (o4 === 0 && onSegment(p3, p2, p4)) return true;
+  return false;
+}
+
+export function polylineIntersectsPolyline(a: Point[], b: Point[]): boolean {
+  for (let i = 1; i < a.length; i++) {
+    for (let j = 1; j < b.length; j++) {
+      if (segmentsIntersect(a[i - 1], a[i], b[j - 1], b[j])) return true;
+    }
+  }
+  return false;
+}
+
+function segmentIntersectsRect(a: Point, b: Point, rect: Rect): boolean {
+  if (pointInRect(a, rect) || pointInRect(b, rect)) return true;
+  const { x, y, width, height } = rect;
+  const corners = [
+    { x, y },
+    { x: x + width, y },
+    { x: x + width, y: y + height },
+    { x, y: y + height },
+  ];
+  for (let i = 0; i < 4; i++) {
+    if (segmentsIntersect(a, b, corners[i], corners[(i + 1) % 4])) return true;
+  }
+  return false;
+}
+
+/** True if a polyline (e.g. a trace) touches a pad's copper anywhere along its length. */
+export function polylineTouchesPad(points: Point[], pad: Rect & { shape: PadShape }): boolean {
+  if (pad.shape === 'round') {
+    return distanceToPolyline(padCenter(pad), points) <= pad.width / 2;
+  }
+  if (points.some((p) => pointInRect(p, pad))) return true;
+  for (let i = 1; i < points.length; i++) {
+    if (segmentIntersectsRect(points[i - 1], points[i], pad)) return true;
+  }
+  return false;
+}
+
 /** Floor on a via's grab radius, so a tiny via is still easy to hit. */
 export const VIA_GRAB_FLOOR_PX = 8;
 

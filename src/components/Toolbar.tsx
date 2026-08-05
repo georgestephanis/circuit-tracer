@@ -31,6 +31,7 @@ interface Props {
   /** 0–1, applied to everything drawn over both photos. */
   overlayOpacity: number;
   onSetOverlayOpacity: (opacity: number) => void;
+  onFindOverlaps: () => void;
 }
 
 export function Toolbar({
@@ -56,6 +57,7 @@ export function Toolbar({
   onRedo,
   overlayOpacity,
   onSetOverlayOpacity,
+  onFindOverlaps,
 }: Props) {
   const [count, setCount] = useState(4);
 
@@ -216,6 +218,16 @@ export function Toolbar({
           />
         </label>
         <span className="export-hint">{Math.round(overlayOpacity * 100)}%</span>
+      </div>
+
+      <div className="toolbar-group">
+        <button
+          type="button"
+          onClick={onFindOverlaps}
+          title="Scan for pads/vias/traces that touch without being wired into the same net"
+        >
+          Find overlaps
+        </button>
       </div>
 
       <div className="toolbar-group">

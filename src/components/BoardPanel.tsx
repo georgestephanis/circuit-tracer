@@ -42,6 +42,8 @@ interface Props {
   onHoverPoint: (side: Side, point: Point | null) => void;
   /** 0–1 opacity for everything drawn over the photo. */
   overlayOpacity: number;
+  /** The overlap-finder's current candidate, so its members can be haloed. */
+  highlight: { traces: Set<string>; pads: Set<string>; vias: Set<string> } | null;
 }
 
 export function BoardPanel({
@@ -60,6 +62,7 @@ export function BoardPanel({
   otherSideHover,
   onHoverPoint,
   overlayOpacity,
+  highlight,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<Point | null>(null);
@@ -545,6 +548,11 @@ export function BoardPanel({
                           ? ' selected'
                           : '')
                       }
+                      // Ground is a flat override, not another shade in the
+                      // linked/unlinked palette — inline wins over both classes
+                      // where the CSS alone couldn't (a class beats `.ground`
+                      // on specificity regardless of source order).
+                      style={v.ground ? { fill: GROUND_COLOR, stroke: GROUND_COLOR } : undefined}
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectVia(v.id);
@@ -554,6 +562,63 @@ export function BoardPanel({
                   );
                 })}
               </g>
+
+              {/* Items flagged by the overlap finder as touching without being
+                  wired into the same net — a non-interactive halo, since the
+                  merge decision lives in the banner, not the canvas. */}
+              {highlight && (
+                <g pointerEvents="none">
+                  {pads
+                    .filter((p) => highlight.pads.has(p.id))
+                    .map((p) =>
+                      p.shape === 'round' ? (
+                        <circle
+                          key={p.id}
+                          cx={p.x + p.width / 2}
+                          cy={p.y + p.height / 2}
+                          r={p.width / 2 + Math.max(2, image.width * 0.002) * viewScale}
+                          className="overlap-highlight"
+                        />
+                      ) : (
+                        <rect
+                          key={p.id}
+                          x={p.x - Math.max(2, image.width * 0.002) * viewScale}
+                          y={p.y - Math.max(2, image.width * 0.002) * viewScale}
+                          width={p.width + Math.max(2, image.width * 0.002) * viewScale * 2}
+                          height={p.height + Math.max(2, image.width * 0.002) * viewScale * 2}
+                          className="overlap-highlight"
+                        />
+                      ),
+                    )}
+                  {traces
+                    .filter((t) => highlight.traces.has(t.id))
+                    .map((t) => (
+                      <path
+                        key={t.id}
+                        d={pointsToPath(t.points)}
+                        strokeWidth={traceWidthPx(t.width) + Math.max(2, image.width * 0.003) * viewScale}
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="overlap-highlight"
+                      />
+                    ))}
+                  {state.vias
+                    .filter((v) => highlight.vias.has(v.id) && v[side])
+                    .map((v) => {
+                      const p = v[side]!;
+                      return (
+                        <circle
+                          key={v.id}
+                          cx={p.x}
+                          cy={p.y}
+                          r={viaRadiusPx(v.diameter) + Math.max(2, image.width * 0.002) * viewScale}
+                          className="overlap-highlight"
+                        />
+                      );
+                    })}
+                </g>
+              )}
 
               {/* Rubber band from the last placed point to where the next would go. */}
               {pendingStart && pendingEnd && (

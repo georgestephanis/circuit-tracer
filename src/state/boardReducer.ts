@@ -53,6 +53,8 @@ export type Action =
   | { type: 'ROTATE_PACKAGE' }
   /** Flag a via/hole or pad as part of the ground net, or clear the flag. */
   | { type: 'TOGGLE_GROUND'; kind: 'via' | 'pad'; id: string }
+  /** Wire an overlapping cluster into one net: shared color, full cross-links. */
+  | { type: 'MERGE_OVERLAP'; traceIds: string[]; padIds: string[]; viaIds: string[] }
   /** Arm a pad series off an existing pad; the next canvas click ends it. */
   | { type: 'START_PAD_ARRAY'; padId: string; count: number }
   | { type: 'PLACE_PAD_ARRAY'; side: Side; point: Point }
@@ -454,6 +456,32 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
             ...state,
             pads: state.pads.map((p) => (p.id === action.id ? { ...p, ground: !p.ground } : p)),
           };
+
+    case 'MERGE_OVERLAP': {
+      const { traceIds, padIds, viaIds } = action;
+      const traceSet = new Set(traceIds);
+      const padSet = new Set(padIds);
+      // The merged shape adopts whichever color is already in play, so it reads
+      // as a continuation of existing copper rather than a brand new net.
+      const color =
+        state.traces.find((t) => traceSet.has(t.id))?.color ??
+        state.pads.find((p) => padSet.has(p.id))?.color ??
+        TRACE_COLORS[(state.nextTraceNum - 1) % TRACE_COLORS.length];
+
+      return {
+        ...state,
+        traces: state.traces.map((t) =>
+          traceSet.has(t.id)
+            ? { ...t, color, connectsPad: [...padIds], connectsVia: [...viaIds] }
+            : t,
+        ),
+        pads: state.pads.map((p) =>
+          padSet.has(p.id)
+            ? { ...p, color, connectsTrace: [...traceIds], connectsVia: [...viaIds] }
+            : p,
+        ),
+      };
+    }
 
     case 'START_PAD_ARRAY': {
       const source = state.pads.find((p) => p.id === action.padId);
