@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { historyReducer, initialHistory } from './state/history';
-import type { Point, RawImage, Shot, Side, SidePhotos, Tool } from './types';
+import type { Point, RawImage, Selection, Shot, Side, SidePhotos, Tool } from './types';
 import { BoardPanel } from './components/BoardPanel';
 import { AlignOverlay } from './components/AlignOverlay';
 import { SchematicView } from './components/SchematicView';
@@ -18,7 +18,7 @@ import { OverlapBanner } from './components/OverlapBanner';
 import { buildCombinedSvg, downloadSvg } from './lib/svgExport';
 import { downloadNetlist } from './lib/netlist';
 import { loadImageElement, quadOutputSize, warpPerspective } from './lib/homography';
-import { findOverlapGroups, type OverlapGroup } from './lib/overlaps';
+import { findOverlapGroups, netMembers, type OverlapGroup } from './lib/overlaps';
 import { pxPerUnit } from './lib/scale';
 import {
   clearSession,
@@ -36,6 +36,7 @@ const AUTOSAVE_DELAY_MS = 600;
 
 /** Number keys pick a tool, in toolbar order. */
 const TOOL_KEYS: Record<string, Tool | undefined> = {
+  '0': 'pointer',
   '1': 'trace',
   '2': 'via',
   '3': 'hole',
@@ -97,6 +98,40 @@ function App() {
       }
     : null;
 
+  // "Follow a trace around": whatever's hovered (or, absent a hover, selected)
+  // gets its whole net highlighted and everything else on the board dimmed.
+  // Hover wins over a "sticky" selection since it's the more immediate signal.
+  const [hoveredItem, setHoveredItem] = useState<Selection | null>(null);
+  const followTarget = hoveredItem ?? state.selection;
+  const follow = useMemo(() => {
+    if (!followTarget || followTarget.kind === 'component') return null;
+    const net = netMembers(state, followTarget.kind, followTarget.id);
+    return { traces: net.traceIds, pads: net.padIds, vias: net.viaIds };
+    // netMembers only reads state.traces/pads/vias (via their connectsX
+    // fields), so those are the real dependencies, not the whole state object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followTarget, state.traces, state.pads, state.vias]);
+
+  // A selection made from a sidebar list gets a brief pulse on the board, so
+  // its on-board location is unmistakable even when it's off in a far corner.
+  const [flashTarget, setFlashTarget] = useState<Selection | null>(null);
+  const flashTimer = useRef<number | null>(null);
+  function selectFromSidebar(selection: Selection) {
+    dispatch({ type: 'SELECT', selection });
+    setFlashTarget(selection);
+    if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlashTarget(null), 900);
+  }
+
+  // Selecting anything scrolls its sidebar row into view, wherever the
+  // selection came from — a click on the board should surface the matching
+  // row even if it's currently scrolled out of sight.
+  useEffect(() => {
+    if (!state.selection) return;
+    const el = document.getElementById(`sel-${state.selection.kind}-${state.selection.id}`);
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [state.selection]);
+
   const sessionKey = useMemo(() => {
     // The restore-offer key is deliberately keyed on each side's *active* shot
     // only — re-uploading that one photo is what re-identifies a session, not
@@ -136,6 +171,11 @@ function App() {
       dispatch({ type: 'ADD_TEST_POINT', side, point });
     } else if (state.tool === 'package') {
       dispatch({ type: 'ADD_PACKAGE', side, point });
+    } else if (state.tool === 'pointer') {
+      // Pointer places nothing. Clicking a pad/trace/via/component reaches
+      // its own handler (which stopPropagation()s before this fires), so
+      // getting here means the click landed on empty canvas — deselect.
+      if (state.selection) dispatch({ type: 'SELECT', selection: null });
     } else {
       dispatch({ type: 'ADD_VIA', side, point, kind: state.tool });
     }
@@ -521,6 +561,9 @@ function App() {
             }
             overlayOpacity={overlayOpacity}
             highlight={overlapHighlight}
+            follow={follow}
+            flash={flashTarget}
+            onHoverItem={setHoveredItem}
           />
         ))}
       </main>
@@ -585,7 +628,7 @@ function App() {
             selection={state.selection}
             unit={state.unit}
             defaultWidth={state.defaultTraceWidth}
-            onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'trace', id } })}
+            onSelect={(id) => selectFromSidebar({ kind: 'trace', id })}
             onRename={(id, label) => dispatch({ type: 'RENAME_TRACE', id, label })}
             onSetWidth={(id, width) => dispatch({ type: 'SET_TRACE_WIDTH', id, width })}
           />
@@ -596,7 +639,7 @@ function App() {
             selection={state.selection}
             unit={state.unit}
             scaleFor={(pad) => pxPerUnit(activeShotOf(state.images[pad.side]), state.boardSize, state.unit)}
-            onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
+            onSelect={(id) => selectFromSidebar({ kind: 'pad', id })}
             onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
             onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
             onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'pad', id })}
@@ -608,7 +651,7 @@ function App() {
             selection={state.selection}
             unit={state.unit}
             scaleFor={(pad) => pxPerUnit(activeShotOf(state.images[pad.side]), state.boardSize, state.unit)}
-            onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
+            onSelect={(id) => selectFromSidebar({ kind: 'pad', id })}
             onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
             onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
             onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'pad', id })}
@@ -619,7 +662,7 @@ function App() {
             components={state.components}
             selectedId={state.selection?.kind === 'component' ? state.selection.id : null}
             padPick={state.padPick}
-            onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'component', id } })}
+            onSelect={(id) => selectFromSidebar({ kind: 'component', id })}
             onGroup={(label, refDes, notes) =>
               dispatch({ type: 'ADD_COMPONENT', label, refDes, notes })
             }
@@ -640,7 +683,7 @@ function App() {
               kind={kind}
               selection={state.selection}
               unit={state.unit}
-              onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'via', id } })}
+              onSelect={(id) => selectFromSidebar({ kind: 'via', id })}
               onRename={(id, label) => dispatch({ type: 'RENAME_VIA', id, label })}
               onSetDiameter={(id, diameter) =>
                 dispatch({ type: 'SET_VIA_DIAMETER', id, diameter })

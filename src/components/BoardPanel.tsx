@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
-import { GROUND_COLOR, type BoardState, type Point, type RawImage, type Side } from '../types';
+import {
+  GROUND_COLOR,
+  type BoardState,
+  type Point,
+  type RawImage,
+  type Selection,
+  type Side,
+} from '../types';
 import {
   type Rect,
   VIA_GRAB_FLOOR_PX,
@@ -49,6 +56,16 @@ interface Props {
   overlayOpacity: number;
   /** The overlap-finder's current candidate, so its members can be haloed. */
   highlight: { traces: Set<string>; pads: Set<string>; vias: Set<string> } | null;
+  /**
+   * The net of whatever's hovered or selected — everything else on the board
+   * (and the background photo) dims so the net stands out. Null means
+   * nothing's hovered/selected, so nothing dims.
+   */
+  follow: { traces: Set<string>; pads: Set<string>; vias: Set<string> } | null;
+  /** A just-made sidebar selection, briefly pulsed here so it's easy to find. */
+  flash: Selection | null;
+  /** Hovering a trace/pad/via, or leaving one (null), for the follow highlight. */
+  onHoverItem: (item: Selection | null) => void;
   /** Whether this side's background photo is drawn at all. */
   showBackground: boolean;
   /** Independent on/off per SVG layer — orthogonal to overlayOpacity's fade. */
@@ -75,6 +92,9 @@ export function BoardPanel({
   onHoverPoint,
   overlayOpacity,
   highlight,
+  follow,
+  flash,
+  onHoverItem,
   showBackground,
   layerVisibility,
 }: Props) {
@@ -283,6 +303,7 @@ export function BoardPanel({
     endPadDrag();
     setHover(null);
     onHoverPoint(side, null);
+    onHoverItem(null);
   }
 
   const traces = state.traces.filter((t) => t.side === side);
@@ -399,7 +420,14 @@ export function BoardPanel({
               onMouseLeave={handleMouseLeave}
             >
               {showBackground && (
-                <image href={image.src} x={0} y={0} width={image.width} height={image.height} />
+                <image
+                  href={image.src}
+                  x={0}
+                  y={0}
+                  width={image.width}
+                  height={image.height}
+                  className={follow ? 'dimmed' : ''}
+                />
               )}
 
               {/*
@@ -417,11 +445,15 @@ export function BoardPanel({
                   const selected =
                     state.selection?.kind === 'pad' && state.selection.id === pad.id;
                   const picked = padPick.includes(pad.id);
+                  const dimmed = Boolean(follow && !follow.pads.has(pad.id));
+                  const flashed = flash?.kind === 'pad' && flash.id === pad.id;
                   const className =
                     'pad-shape' +
                     (pad.ground ? ' ground' : '') +
                     (selected ? ' selected' : '') +
                     (picked ? ' picked' : '') +
+                    (dimmed ? ' dimmed' : '') +
+                    (flashed ? ' flash' : '') +
                     // A selected pad can be dragged, so it gets the move cursor.
                     (selected && !tracing ? ' draggable' : '');
                   const fill = pad.ground ? GROUND_COLOR : pad.color;
@@ -434,6 +466,8 @@ export function BoardPanel({
                     onSelectPad(pad.id);
                   };
                   const onMouseDown = (e: MouseEvent<SVGElement>) => startPadDrag(e, pad.id);
+                  const onMouseEnter = () => onHoverItem({ kind: 'pad', id: pad.id });
+                  const onMouseLeave = () => onHoverItem(null);
                   // An in-flight drag is drawn as an offset; the real move is
                   // dispatched on drop.
                   const drag = padDrag?.id === pad.id ? padDrag.delta : null;
@@ -450,6 +484,8 @@ export function BoardPanel({
                       transform={transform}
                       onClick={select}
                       onMouseDown={onMouseDown}
+                      onMouseEnter={onMouseEnter}
+                      onMouseLeave={onMouseLeave}
                       pointerEvents={tracing ? 'none' : undefined}
                     />
                   ) : (
@@ -464,6 +500,8 @@ export function BoardPanel({
                       transform={transform}
                       onClick={select}
                       onMouseDown={onMouseDown}
+                      onMouseEnter={onMouseEnter}
+                      onMouseLeave={onMouseLeave}
                       pointerEvents={tracing ? 'none' : undefined}
                     />
                   );
@@ -478,6 +516,9 @@ export function BoardPanel({
                     if (!rect) return null;
                     const selected =
                       state.selection?.kind === 'component' && state.selection.id === c.id;
+                    // A component follows if any of its pads is in the net.
+                    const dimmed = Boolean(follow && !c.padIds.some((id) => follow.pads.has(id)));
+                    const flashed = flash?.kind === 'component' && flash.id === c.id;
                     const pad = Math.max(4, image.width * 0.006) * viewScale;
                     const fs = image.width * 0.016 * viewScale;
                     const select = (e: MouseEvent<SVGElement>) => {
@@ -485,7 +526,12 @@ export function BoardPanel({
                       onSelectComponent(c.id);
                     };
                     return (
-                      <g key={c.id} onClick={select} pointerEvents={tracing ? 'none' : undefined}>
+                      <g
+                        key={c.id}
+                        onClick={select}
+                        className={(dimmed ? 'dimmed' : '') + (flashed ? ' flash' : '')}
+                        pointerEvents={tracing ? 'none' : undefined}
+                      >
                         <rect
                           x={rect.x - pad}
                           y={rect.y - pad}
@@ -528,27 +574,35 @@ export function BoardPanel({
                 ))}
 
               <g {...layerOverlay(layerVisibility.traces)}>
-                {traces.map((t) => (
-                  <path
-                    key={t.id}
-                    d={pointsToPath(t.points)}
-                    stroke={t.color}
-                    strokeWidth={traceWidthPx(t.width)}
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className={
-                      state.selection?.kind === 'trace' && state.selection.id === t.id
-                        ? 'selected'
-                        : ''
-                    }
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectTrace(t.id);
-                    }}
-                    pointerEvents={tracing ? 'none' : undefined}
-                  />
-                ))}
+                {traces.map((t) => {
+                  const dimmed = Boolean(follow && !follow.traces.has(t.id));
+                  const flashed = flash?.kind === 'trace' && flash.id === t.id;
+                  return (
+                    <path
+                      key={t.id}
+                      d={pointsToPath(t.points)}
+                      stroke={t.color}
+                      strokeWidth={traceWidthPx(t.width)}
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={
+                        (state.selection?.kind === 'trace' && state.selection.id === t.id
+                          ? 'selected'
+                          : '') +
+                        (dimmed ? ' dimmed' : '') +
+                        (flashed ? ' flash' : '')
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectTrace(t.id);
+                      }}
+                      onMouseEnter={() => onHoverItem({ kind: 'trace', id: t.id })}
+                      onMouseLeave={() => onHoverItem(null)}
+                      pointerEvents={tracing ? 'none' : undefined}
+                    />
+                  );
+                })}
               </g>
 
               {draft && (
@@ -594,6 +648,8 @@ export function BoardPanel({
                   if (!p) return null;
                   const linked = Boolean(v.front && v.back);
                   const r = viaRadiusPx(v.diameter);
+                  const dimmed = Boolean(follow && !follow.vias.has(v.id));
+                  const flashed = flash?.kind === 'via' && flash.id === v.id;
                   return (
                     <circle
                       key={v.id}
@@ -609,7 +665,9 @@ export function BoardPanel({
                         (v.ground ? ' ground' : '') +
                         (state.selection?.kind === 'via' && state.selection.id === v.id
                           ? ' selected'
-                          : '')
+                          : '') +
+                        (dimmed ? ' dimmed' : '') +
+                        (flashed ? ' flash' : '')
                       }
                       // Ground is a flat override, not another shade in the
                       // linked/unlinked palette — inline wins over both classes
@@ -620,6 +678,8 @@ export function BoardPanel({
                         e.stopPropagation();
                         onSelectVia(v.id);
                       }}
+                      onMouseEnter={() => onHoverItem({ kind: 'via', id: v.id })}
+                      onMouseLeave={() => onHoverItem(null)}
                       pointerEvents={tracing ? 'none' : undefined}
                     />
                   );

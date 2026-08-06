@@ -33,6 +33,7 @@ export function ViaList({
         return (
           <li
             key={v.id}
+            id={`sel-via-${v.id}`}
             className={selection?.kind === 'via' && selection.id === v.id ? 'selected' : ''}
           >
             <span

@@ -66,6 +66,14 @@ export function Toolbar({
       <div className="toolbar-group">
         <button
           type="button"
+          className={tool === 'pointer' ? 'active' : ''}
+          onClick={() => onSetTool('pointer')}
+          title="Pointer (0)"
+        >
+          Pointer
+        </button>
+        <button
+          type="button"
           className={tool === 'trace' ? 'active' : ''}
           onClick={() => onSetTool('trace')}
         >
@@ -103,6 +111,15 @@ export function Toolbar({
           SMD package
         </button>
       </div>
+
+      {tool === 'pointer' && (
+        <div className="toolbar-group">
+          <span className="export-hint">
+            Click a trace, pad, via, or component to select it and see its whole net. Drag a
+            pad to move it; shift-click pads to group them into a component.
+          </span>
+        </div>
+      )}
 
       {tool === 'trace' && (
         <div className="toolbar-group">

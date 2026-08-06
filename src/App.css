@@ -394,6 +394,31 @@
   outline-offset: 1px;
 }
 
+/* "Follow a trace around": everything not in the hovered/selected net (plus
+   the background photo) fades back so the net itself stands out. */
+.dimmed {
+  opacity: 0.18;
+  transition: opacity 0.15s ease;
+}
+
+/* A sidebar-driven selection gets a brief pulse on the board so its
+   on-board location is unmistakable, even off in a far corner. */
+.flash {
+  animation: flash-pulse 0.9s ease-out;
+}
+
+@keyframes flash-pulse {
+  0% {
+    filter: drop-shadow(0 0 0 var(--accent)) drop-shadow(0 0 0 var(--accent));
+  }
+  30% {
+    filter: drop-shadow(0 0 10px var(--accent)) drop-shadow(0 0 18px var(--accent));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 transparent) drop-shadow(0 0 0 transparent);
+  }
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;

@@ -61,6 +61,33 @@ function buildNetUnionFind(state: BoardState): UnionFind {
   return uf;
 }
 
+/** Every trace/pad/via that's electrically one net with a given starting item. */
+export interface NetMembers {
+  traceIds: Set<string>;
+  padIds: Set<string>;
+  viaIds: Set<string>;
+}
+
+/**
+ * The full net a trace/pad/via belongs to, from its recorded connections —
+ * used to "follow a trace around" (highlight everything wired to what's
+ * hovered/selected), not to find geometric overlaps like `findOverlapGroups`.
+ */
+export function netMembers(
+  state: BoardState,
+  kind: 'trace' | 'pad' | 'via',
+  id: string,
+): NetMembers {
+  const uf = buildNetUnionFind(state);
+  const startKey = kind === 'trace' ? traceKey(id) : kind === 'pad' ? padKey(id) : viaKey(id);
+  const root = uf.find(startKey);
+  return {
+    traceIds: new Set(state.traces.filter((t) => uf.find(traceKey(t.id)) === root).map((t) => t.id)),
+    padIds: new Set(state.pads.filter((p) => uf.find(padKey(p.id)) === root).map((p) => p.id)),
+    viaIds: new Set(state.vias.filter((v) => uf.find(viaKey(v.id)) === root).map((v) => v.id)),
+  };
+}
+
 /** A via's on-screen radius in image pixels, for one side — matches BoardPanel's own sizing. */
 function viaRadiusPx(diameter: number, scale: number): number {
   return Math.max(2, (diameter / 2) * scale);

@@ -34,6 +34,7 @@ export function PadList({
         return (
           <li
             key={pad.id}
+            id={`sel-pad-${pad.id}`}
             className={selection?.kind === 'pad' && selection.id === pad.id ? 'selected' : ''}
           >
             <span

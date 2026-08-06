@@ -141,7 +141,12 @@ export interface Component {
  */
 export type FlipAxis = 'horizontal' | 'vertical';
 
-export type Tool = 'trace' | 'via' | 'hole' | 'pad' | 'testpoint' | 'package';
+/**
+ * `pointer` places nothing — it's the default, for selecting an existing
+ * trace/pad/via/component (to inspect, move a pad, or shift-click pads into
+ * a component). Every other tool places something on click.
+ */
+export type Tool = 'pointer' | 'trace' | 'via' | 'hole' | 'pad' | 'testpoint' | 'package';
 
 /** Anything sized by a diameter rather than a width — see `SET_DEFAULT_DIAMETER`. */
 export type RoundKind = HoleKind | 'testpoint';

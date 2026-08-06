@@ -103,7 +103,7 @@ export const initialState: BoardState = {
   vias: [],
   pads: [],
   components: [],
-  tool: 'trace',
+  tool: 'pointer',
   draftTrace: null,
   draftPad: null,
   padArray: null,

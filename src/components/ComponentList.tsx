@@ -93,7 +93,7 @@ export function ComponentList({
   return (
     <ul className="item-list">
       {components.map((c) => (
-        <li key={c.id} className={selectedId === c.id ? 'selected' : ''}>
+        <li key={c.id} id={`sel-component-${c.id}`} className={selectedId === c.id ? 'selected' : ''}>
           <span className="item-id" onClick={() => onSelect(c.id)}>
             {c.id} ({c.padIds.length} pads)
           </span>

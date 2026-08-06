@@ -27,6 +27,7 @@ export function TraceList({
       {traces.map((t) => (
         <li
           key={t.id}
+          id={`sel-trace-${t.id}`}
           className={selection?.kind === 'trace' && selection.id === t.id ? 'selected' : ''}
         >
           <span className="swatch" style={{ background: t.color }} />
