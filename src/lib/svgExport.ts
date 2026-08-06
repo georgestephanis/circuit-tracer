@@ -89,10 +89,27 @@ function renderComponent(c: Component, pads: Pad[]): string {
   </g>`;
 }
 
-function renderSideGroup(state: BoardState, side: Side, offsetX: number): string {
-  const image = state.images[side];
-  if (!image) return '';
-  const scale = pxPerUnit(image, state.boardSize, state.unit);
+/** The shot currently displayed/exported for a side — export never offers a per-shot picker. */
+function activeShotOf(images: BoardState['images'], side: Side) {
+  const photos = images[side];
+  if (!photos) return null;
+  return photos.shots[photos.activeShotId] ?? null;
+}
+
+export interface SvgExportOptions {
+  /** When false, omit each side's embedded photo — annotations only. Defaults to true. */
+  includeImages?: boolean;
+}
+
+function renderSideGroup(
+  state: BoardState,
+  side: Side,
+  offsetX: number,
+  options: SvgExportOptions,
+): string {
+  const shot = activeShotOf(state.images, side);
+  if (!shot) return '';
+  const scale = pxPerUnit(shot, state.boardSize, state.unit);
 
   // Pads are emitted before traces so that a trace running into a pad renders
   // as one continuous copper shape.
@@ -106,15 +123,24 @@ function renderSideGroup(state: BoardState, side: Side, offsetX: number): string
     .map((c) => renderComponent(c, state.pads))
     .filter(Boolean);
 
+  const image =
+    options.includeImages === false
+      ? ''
+      : `<image href="${shot.src}" x="0" y="0" width="${shot.width}" height="${shot.height}" />
+    `;
+
   return `<g data-side="${side}" data-px-per-unit="${num(scale)}" transform="translate(${offsetX}, 0)">
-    <image href="${image.src}" x="0" y="0" width="${image.width}" height="${image.height}" />
-    ${[...pads, ...traces, ...vias, ...components].join('\n    ')}
+    ${image}${[...pads, ...traces, ...vias, ...components].join('\n    ')}
   </g>`;
 }
 
-export function buildCombinedSvg(state: BoardState, boardName: string): string {
-  const front = state.images.front;
-  const back = state.images.back;
+export function buildCombinedSvg(
+  state: BoardState,
+  boardName: string,
+  options: SvgExportOptions = {},
+): string {
+  const front = activeShotOf(state.images, 'front');
+  const back = activeShotOf(state.images, 'back');
   if (!front || !back) {
     throw new Error('Both front and back images must be uploaded before exporting.');
   }
@@ -123,8 +149,8 @@ export function buildCombinedSvg(state: BoardState, boardName: string): string {
   const totalHeight = Math.max(front.height, back.height);
   const backOffsetX = front.width + GAP;
 
-  const frontGroup = renderSideGroup(state, 'front', 0);
-  const backGroup = renderSideGroup(state, 'back', backOffsetX);
+  const frontGroup = renderSideGroup(state, 'front', 0, options);
+  const backGroup = renderSideGroup(state, 'back', backOffsetX, options);
 
   const timestamp = new Date().toISOString();
   const size = state.boardSize;

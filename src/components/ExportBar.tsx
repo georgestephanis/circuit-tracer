@@ -6,6 +6,8 @@ interface Props {
   onExport: () => void;
   onExportNetlist: () => void;
   onViewSchematic: () => void;
+  excludeImages: boolean;
+  onSetExcludeImages: (exclude: boolean) => void;
 }
 
 export function ExportBar({
@@ -16,6 +18,8 @@ export function ExportBar({
   onExport,
   onExportNetlist,
   onViewSchematic,
+  excludeImages,
+  onSetExcludeImages,
 }: Props) {
   return (
     <div className="export-bar">
@@ -25,6 +29,14 @@ export function ExportBar({
         value={boardName}
         onChange={(e) => onSetBoardName(e.target.value)}
       />
+      <label className="export-bar-checkbox">
+        <input
+          type="checkbox"
+          checked={excludeImages}
+          onChange={(e) => onSetExcludeImages(e.target.checked)}
+        />
+        Exclude photos
+      </label>
       <button type="button" disabled={!canExport || !boardName.trim()} onClick={onExport}>
         Export SVG
       </button>

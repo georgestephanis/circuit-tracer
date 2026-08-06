@@ -71,6 +71,7 @@ function App() {
     vias: true,
     components: true,
   });
+  const [excludeImages, setExcludeImages] = useState(false);
   const [schematicOpen, setSchematicOpen] = useState(false);
   const [alignBusy, setAlignBusy] = useState(false);
   const [alignError, setAlignError] = useState<string | null>(null);
@@ -310,7 +311,7 @@ function App() {
   function handleExport() {
     const boardName = state.boardName;
     try {
-      const svg = buildCombinedSvg(state, boardName);
+      const svg = buildCombinedSvg(state, boardName, { includeImages: !excludeImages });
       downloadSvg(svg, boardName);
       setExportError(null);
     } catch (err) {
@@ -412,6 +413,8 @@ function App() {
           onExport={handleExport}
           onExportNetlist={handleExportNetlist}
           onViewSchematic={() => setSchematicOpen(true)}
+          excludeImages={excludeImages}
+          onSetExcludeImages={setExcludeImages}
         />
         <VisibilityPanel
           images={state.images}
