@@ -23,9 +23,14 @@ const STORAGE_KEY = 'circuit-tracer/sessions/v1';
 //
 // v4 added Components (pad groupings). A session written before they existed
 // simply has none, so it reads back with an empty `components` list.
-const SCHEMA_VERSION = 4;
+//
+// v5 split each side's alignment into named shots (e.g. "Populated"/"Bare"),
+// keyed by id, with one marked active. A pre-v5 session's single alignment is
+// unambiguously today's only shot, so `migrate()` wraps it as one rather than
+// dropping the session.
+const SCHEMA_VERSION = 5;
 /** Versions whose data can be read as-is once normalized by `migrate()`. */
-const READABLE_VERSIONS = [2, 3, SCHEMA_VERSION];
+const READABLE_VERSIONS = [2, 3, 4, SCHEMA_VERSION];
 /** How many boards' worth of work to keep before evicting the oldest. */
 const MAX_SESSIONS = 8;
 
@@ -34,6 +39,17 @@ export interface SavedAlignment {
   corners: Point[];
   width: number;
   height: number;
+}
+
+/** One saved shot's alignment — a `SavedAlignment` plus its user-facing name. */
+export interface SavedShotAlignment extends SavedAlignment {
+  name: string;
+}
+
+/** A side's saved shots, plus which one was active when the session was saved. */
+export interface SavedSidePhotos {
+  activeShotId: string;
+  shots: Record<string, SavedShotAlignment>;
 }
 
 /**
@@ -64,7 +80,7 @@ export interface SavedSession {
   defaultHoleDiameter: number;
   defaultTestPointDiameter: number;
   backFlip: FlipAxis;
-  alignment: Partial<Record<Side, SavedAlignment>>;
+  alignment: Partial<Record<Side, SavedSidePhotos>>;
 }
 
 /** djb2 over the image's data URL — cheap, stable, and good enough to identify a re-upload. */
@@ -110,6 +126,24 @@ function readAll(): Record<string, SavedSession> {
  */
 function migrate(s: SavedSession): SavedSession {
   if (s.version === SCHEMA_VERSION) return s;
+
+  // Pre-v5 data has one bare alignment per side; wrap it as that side's only
+  // (and active) shot rather than inventing a name it never had.
+  const alignment: Partial<Record<Side, SavedSidePhotos>> = {};
+  for (const side of ['front', 'back'] as Side[]) {
+    const old = s.alignment[side] as unknown as SavedSidePhotos | SavedAlignment | undefined;
+    if (!old) continue;
+    if ('shots' in old) {
+      alignment[side] = old;
+      continue;
+    }
+    const id = `shot-${side}-default`;
+    alignment[side] = {
+      activeShotId: id,
+      shots: { [id]: { name: 'Default', ...old } },
+    };
+  }
+
   return {
     ...s,
     version: SCHEMA_VERSION,
@@ -118,6 +152,7 @@ function migrate(s: SavedSession): SavedSession {
     backFlip: s.backFlip ?? 'horizontal',
     components: s.components ?? [],
     nextComponentNum: s.nextComponentNum ?? 1,
+    alignment,
   };
 }
 
@@ -165,11 +200,22 @@ export function clearAllSessions(): void {
 }
 
 export function snapshotFromState(state: BoardState): SavedSession {
-  const alignment: Partial<Record<Side, SavedAlignment>> = {};
+  const alignment: Partial<Record<Side, SavedSidePhotos>> = {};
   for (const side of ['front', 'back'] as Side[]) {
-    const image = state.images[side];
-    if (image?.corners) {
-      alignment[side] = { corners: image.corners, width: image.width, height: image.height };
+    const photos = state.images[side];
+    if (!photos) continue;
+    // Only aligned shots are worth restoring — an unaligned upload has no
+    // corners to re-warp from, and its raw photo is never persisted anyway.
+    const shots = Object.fromEntries(
+      Object.entries(photos.shots)
+        .filter(([, shot]) => shot.corners)
+        .map(([id, shot]) => [
+          id,
+          { name: shot.name, corners: shot.corners!, width: shot.width, height: shot.height },
+        ]),
+    );
+    if (Object.keys(shots).length > 0) {
+      alignment[side] = { activeShotId: photos.activeShotId, shots };
     }
   }
 
@@ -201,12 +247,14 @@ export function snapshotFromState(state: BoardState): SavedSession {
 export function hasWork(
   source: Pick<BoardState, 'traces' | 'vias' | 'pads' | 'boardSize' | 'boardName'> & {
     images?: BoardState['images'];
-    alignment?: Partial<Record<Side, SavedAlignment>>;
+    alignment?: Partial<Record<Side, SavedSidePhotos>>;
   },
 ): boolean {
+  const shotIsAligned = (side: Side) =>
+    Object.values(source.images?.[side]?.shots ?? {}).some((shot) => shot.corners);
   const aligned = source.alignment
     ? Object.keys(source.alignment).length > 0
-    : Boolean(source.images?.front?.corners || source.images?.back?.corners);
+    : shotIsAligned('front') || shotIsAligned('back');
   return (
     source.traces.length > 0 ||
     source.vias.length > 0 ||

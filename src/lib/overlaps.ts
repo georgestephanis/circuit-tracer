@@ -92,7 +92,9 @@ export function findOverlapGroups(state: BoardState): OverlapGroup[] {
   const mergeUf = new UnionFind();
 
   for (const side of ['front', 'back'] as Side[]) {
-    const scale = pxPerUnit(state.images[side], state.boardSize, state.unit);
+    const photos = state.images[side];
+    const shot = photos ? (photos.shots[photos.activeShotId] ?? null) : null;
+    const scale = pxPerUnit(shot, state.boardSize, state.unit);
     const traces = state.traces.filter((t) => t.side === side);
     const pads = state.pads.filter((p) => p.side === side);
     const vias = state.vias.filter((v) => v[side]);

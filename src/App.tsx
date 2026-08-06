@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { historyReducer, initialHistory } from './state/history';
-import type { BoardImage, Point, Side, Tool } from './types';
+import type { Point, RawImage, Shot, Side, SidePhotos, Tool } from './types';
 import { BoardPanel } from './components/BoardPanel';
 import { AlignOverlay } from './components/AlignOverlay';
 import { SchematicView } from './components/SchematicView';
@@ -12,6 +12,7 @@ import { ComponentList } from './components/ComponentList';
 import { SidebarSection } from './components/SidebarSection';
 import { ScalePanel } from './components/ScalePanel';
 import { ExportBar } from './components/ExportBar';
+import { VisibilityPanel } from './components/VisibilityPanel';
 import { RestoreBanner } from './components/RestoreBanner';
 import { OverlapBanner } from './components/OverlapBanner';
 import { buildCombinedSvg, downloadSvg } from './lib/svgExport';
@@ -43,6 +44,12 @@ const TOOL_KEYS: Record<string, Tool | undefined> = {
   '6': 'package',
 };
 
+/** The shot currently displayed/edited/exported for a side, if any. */
+function activeShotOf(photos: SidePhotos | null | undefined): Shot | null {
+  if (!photos) return null;
+  return photos.shots[photos.activeShotId] ?? null;
+}
+
 function App() {
   const [history, dispatch] = useReducer(historyReducer, initialHistory);
   const state = history.present;
@@ -51,7 +58,19 @@ function App() {
   /** Cursor position while placing a via/hole, so the other side can preview the exit. */
   const [holeHover, setHoleHover] = useState<{ side: Side; point: Point } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [aligning, setAligning] = useState<Side | null>(null);
+  const [aligning, setAligning] = useState<{ side: Side; shotId: string } | null>(null);
+  // Pure view state, like overlayOpacity below — never touches the reducer,
+  // undo history, autosave, or export.
+  const [showBackground, setShowBackground] = useState<Record<Side, boolean>>({
+    front: true,
+    back: true,
+  });
+  const [layerVisibility, setLayerVisibility] = useState({
+    pads: true,
+    traces: true,
+    vias: true,
+    components: true,
+  });
   const [schematicOpen, setSchematicOpen] = useState(false);
   const [alignBusy, setAlignBusy] = useState(false);
   const [alignError, setAlignError] = useState<string | null>(null);
@@ -77,11 +96,14 @@ function App() {
       }
     : null;
 
-  const sessionKey = useMemo(
-    () => sessionKeyFor(state.images.front?.raw?.src ?? state.images.front?.src ?? null,
-                        state.images.back?.raw?.src ?? state.images.back?.src ?? null),
-    [state.images.front, state.images.back],
-  );
+  const sessionKey = useMemo(() => {
+    // The restore-offer key is deliberately keyed on each side's *active* shot
+    // only — re-uploading that one photo is what re-identifies a session, not
+    // every alternate shot ever registered against it.
+    const front = activeShotOf(state.images.front);
+    const back = activeShotOf(state.images.back);
+    return sessionKeyFor(front?.raw?.src ?? front?.src ?? null, back?.raw?.src ?? back?.src ?? null);
+  }, [state.images.front, state.images.back]);
 
   // Test points are pads, but listing them among the rectangles buries them.
   const rectPads = state.pads.filter((p) => p.shape !== 'round');
@@ -91,8 +113,14 @@ function App() {
   const hasSelection = Boolean(state.selection);
   const canExport = Boolean(state.images.front && state.images.back);
 
-  function handleLoadImage(side: Side, image: BoardImage) {
-    dispatch({ type: 'LOAD_IMAGE', side, image });
+  function handleAddShot(side: Side, raw: RawImage, name?: string) {
+    const existingCount = Object.keys(state.images[side]?.shots ?? {}).length;
+    dispatch({
+      type: 'ADD_SHOT',
+      side,
+      name: name ?? (existingCount === 0 ? 'Default' : `Shot ${existingCount + 1}`),
+      raw,
+    });
   }
 
   function handleCanvasClick(side: Side, point: Point) {
@@ -118,10 +146,15 @@ function App() {
     }
   }
 
-  function handleAlign(side: Side) {
+  function handleAlign(side: Side, shotId: string) {
+    // Aligning a side's currently-active shot is what actually rewrites the
+    // side's pixel space (see ALIGN_SHOT), so only that case can lose work —
+    // aligning a second, inactive shot never touches anything already drawn.
+    const isActiveRealign = state.images[side]?.activeShotId === shotId;
     const hasWork =
       state.traces.some((t) => t.side === side) || state.vias.some((v) => Boolean(v[side]));
     if (
+      isActiveRealign &&
       hasWork &&
       !window.confirm(
         `Re-aligning the ${side} will change its pixel space, so the traces and vias already placed on that side will be removed. Continue?`,
@@ -130,15 +163,16 @@ function App() {
       return;
     }
     setAlignError(null);
-    setAligning(side);
+    setAligning({ side, shotId });
   }
 
   async function handleAlignConfirm(corners: Point[]) {
     if (!aligning) return;
-    const image = state.images[aligning];
-    if (!image) return;
+    const { side, shotId } = aligning;
+    const shot = state.images[side]?.shots[shotId];
+    if (!shot) return;
 
-    const raw = image.raw ?? { src: image.src, width: image.width, height: image.height };
+    const raw = shot.raw ?? { src: shot.src, width: shot.width, height: shot.height };
     setAlignBusy(true);
     setAlignError(null);
     try {
@@ -146,9 +180,9 @@ function App() {
       const size = state.alignedSize ?? quadOutputSize(corners);
       const correctedSrc = warpPerspective(el, corners, size.width, size.height);
       dispatch({
-        type: 'APPLY_ALIGNMENT',
-        side: aligning,
-        raw,
+        type: 'ALIGN_SHOT',
+        side,
+        shotId,
         corners,
         correctedSrc,
         width: size.width,
@@ -196,26 +230,42 @@ function App() {
     setRestoreBusy(true);
     setAlignError(null);
     try {
-      // Re-derive each corrected image by re-warping the freshly uploaded photo
-      // with the corners we saved, rather than storing the warped raster.
+      // The restore offer matched on the *active* shot's photo only (see
+      // sessionKey above), so that's the only shot we can re-derive here — any
+      // other saved shots need their own photo re-uploaded individually, so
+      // they're simply dropped rather than guessed at.
       const images = { ...state.images };
       for (const side of ['front', 'back'] as Side[]) {
         const saved = offer.alignment[side];
-        const current = images[side];
+        const current = activeShotOf(images[side]);
         if (!saved || !current) continue;
+        const savedShot = saved.shots[saved.activeShotId];
+        if (!savedShot) continue;
         const raw = current.raw ?? {
           src: current.src,
           width: current.width,
           height: current.height,
         };
         const el = await loadImageElement(raw.src);
-        const correctedSrc = warpPerspective(el, saved.corners, saved.width, saved.height);
+        const correctedSrc = warpPerspective(
+          el,
+          savedShot.corners,
+          savedShot.width,
+          savedShot.height,
+        );
         images[side] = {
-          src: correctedSrc,
-          width: saved.width,
-          height: saved.height,
-          raw,
-          corners: saved.corners,
+          activeShotId: saved.activeShotId,
+          shots: {
+            [saved.activeShotId]: {
+              id: saved.activeShotId,
+              name: savedShot.name,
+              src: correctedSrc,
+              width: savedShot.width,
+              height: savedShot.height,
+              raw,
+              corners: savedShot.corners,
+            },
+          },
         };
       }
       dispatch({ type: 'RESTORE_SESSION', session: offer, images });
@@ -363,6 +413,21 @@ function App() {
           onExportNetlist={handleExportNetlist}
           onViewSchematic={() => setSchematicOpen(true)}
         />
+        <VisibilityPanel
+          images={state.images}
+          showBackground={showBackground}
+          onSetShowBackground={(side, visible) =>
+            setShowBackground((prev) => ({ ...prev, [side]: visible }))
+          }
+          layerVisibility={layerVisibility}
+          onSetLayerVisibility={(layer, visible) =>
+            setLayerVisibility((prev) => ({ ...prev, [layer]: visible }))
+          }
+          onSetActiveShot={(side, shotId) => dispatch({ type: 'SET_ACTIVE_SHOT', side, shotId })}
+          onDeleteShot={(side, shotId) => dispatch({ type: 'DELETE_SHOT', side, shotId })}
+          onAlignShot={handleAlign}
+          onAddShot={handleAddShot}
+        />
       </header>
       {exportError && <div className="export-error">{exportError}</div>}
       {saveError && <div className="export-error">{saveError}</div>}
@@ -422,7 +487,9 @@ function App() {
             key={side}
             side={side}
             state={state}
-            onLoadImage={handleLoadImage}
+            onAddShot={handleAddShot}
+            showBackground={showBackground[side]}
+            layerVisibility={layerVisibility}
             onCanvasClick={handleCanvasClick}
             onCanvasDoubleClick={handleCanvasDoubleClick}
             onSelectTrace={(id) => dispatch({ type: 'SELECT', selection: { kind: 'trace', id } })}
@@ -525,7 +592,7 @@ function App() {
             pads={rectPads}
             selection={state.selection}
             unit={state.unit}
-            scaleFor={(pad) => pxPerUnit(state.images[pad.side], state.boardSize, state.unit)}
+            scaleFor={(pad) => pxPerUnit(activeShotOf(state.images[pad.side]), state.boardSize, state.unit)}
             onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
             onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
             onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
@@ -537,7 +604,7 @@ function App() {
             pads={testPoints}
             selection={state.selection}
             unit={state.unit}
-            scaleFor={(pad) => pxPerUnit(state.images[pad.side], state.boardSize, state.unit)}
+            scaleFor={(pad) => pxPerUnit(activeShotOf(state.images[pad.side]), state.boardSize, state.unit)}
             onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
             onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
             onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
@@ -583,16 +650,16 @@ function App() {
 
       {aligning &&
         (() => {
-          const image = state.images[aligning];
-          if (!image) return null;
-          const raw = image.raw ?? image;
+          const shot = state.images[aligning.side]?.shots[aligning.shotId];
+          if (!shot) return null;
+          const raw = shot.raw ?? shot;
           return (
             <AlignOverlay
-              side={aligning}
+              side={aligning.side}
               src={raw.src}
               width={raw.width}
               height={raw.height}
-              initialCorners={image.corners}
+              initialCorners={shot.corners}
               lockedSize={state.alignedSize}
               busy={alignBusy}
               error={alignError}

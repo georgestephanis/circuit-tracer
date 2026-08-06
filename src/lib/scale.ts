@@ -1,4 +1,4 @@
-import type { BoardImage, LengthUnit, PhysicalSize } from '../types';
+import type { LengthUnit, PhysicalSize } from '../types';
 
 /** How many millimetres one of each unit is worth. */
 const MM_PER_UNIT: Record<LengthUnit, number> = {
@@ -43,7 +43,7 @@ export function clampLength(value: number, unit: LengthUnit): number {
  * `ASSUMED_BOARD_WIDTH_MM` stands in so nothing renders at an absurd size.
  */
 export function pxPerUnit(
-  image: BoardImage | null,
+  image: { width: number; height: number } | null,
   boardSize: PhysicalSize | null,
   unit: LengthUnit,
 ): number {

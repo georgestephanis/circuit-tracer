@@ -1,13 +1,12 @@
 import { useRef, type ChangeEvent, type DragEvent } from 'react';
-import type { BoardImage, Side } from '../types';
+import type { RawImage, Side } from '../types';
 
 interface Props {
   side: Side;
-  image: BoardImage | null;
-  onLoad: (side: Side, image: BoardImage) => void;
+  onLoad: (side: Side, image: RawImage) => void;
 }
 
-function readImageFile(file: File): Promise<BoardImage> {
+function readImageFile(file: File): Promise<RawImage> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error);
@@ -22,13 +21,16 @@ function readImageFile(file: File): Promise<BoardImage> {
   });
 }
 
-export function ImageUploader({ side, image, onLoad }: Props) {
+// Always renders the "nothing uploaded yet" state: BoardPanel only mounts this
+// before a side has its first shot, and VisibilityPanel's "add a shot" flow is
+// inherently a fresh upload too — neither wants a "replace" mode.
+export function ImageUploader({ side, onLoad }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(file: File | undefined) {
     if (!file) return;
-    const boardImage = await readImageFile(file);
-    onLoad(side, boardImage);
+    const raw = await readImageFile(file);
+    onLoad(side, raw);
   }
 
   function handleChange(e: ChangeEvent<HTMLInputElement>) {
@@ -38,17 +40,6 @@ export function ImageUploader({ side, image, onLoad }: Props) {
   function handleDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault();
     void handleFile(e.dataTransfer.files?.[0]);
-  }
-
-  if (image) {
-    return (
-      <div className="uploader uploader--loaded">
-        <button type="button" onClick={() => inputRef.current?.click()}>
-          Replace {side} image
-        </button>
-        <input ref={inputRef} type="file" accept="image/*" hidden onChange={handleChange} />
-      </div>
-    );
   }
 
   return (

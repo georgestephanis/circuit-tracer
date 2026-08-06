@@ -1,5 +1,4 @@
 import type {
-  BoardImage,
   BoardState,
   Component,
   HoleKind,
@@ -10,6 +9,8 @@ import type {
   RawImage,
   FlipAxis,
   RoundKind,
+  Shot,
+  SidePhotos,
   Side,
   Tool,
   Trace,
@@ -30,16 +31,20 @@ import { SMD_PACKAGES, cyclePackage, packagePads } from '../lib/packages';
 import type { SavedSession } from '../lib/persistence';
 
 export type Action =
-  | { type: 'LOAD_IMAGE'; side: Side; image: BoardImage }
+  /** Add a newly uploaded, not-yet-aligned photo of a side. */
+  | { type: 'ADD_SHOT'; side: Side; name: string; raw: RawImage }
   | {
-      type: 'APPLY_ALIGNMENT';
+      type: 'ALIGN_SHOT';
       side: Side;
-      raw: RawImage;
+      shotId: string;
       corners: Point[];
       correctedSrc: string;
       width: number;
       height: number;
     }
+  /** Switch which shot of a side is displayed, edited, and exported. */
+  | { type: 'SET_ACTIVE_SHOT'; side: Side; shotId: string }
+  | { type: 'DELETE_SHOT'; side: Side; shotId: string }
   | { type: 'SET_TOOL'; tool: Tool }
   | { type: 'ADD_TRACE_POINT'; side: Side; point: Point }
   | { type: 'FINISH_TRACE' }
@@ -83,7 +88,7 @@ export type Action =
   | { type: 'SET_VIA_DIAMETER'; id: string; diameter: number }
   | { type: 'SET_PAD_DIAMETER'; id: string; diameter: number }
   | { type: 'SET_BOARD_NAME'; boardName: string }
-  | { type: 'RESTORE_SESSION'; session: SavedSession; images: Record<Side, BoardImage | null> }
+  | { type: 'RESTORE_SESSION'; session: SavedSession; images: Record<Side, SidePhotos | null> }
   | { type: 'RESET_BOARD' };
 
 const TRACE_COLORS = [
@@ -131,9 +136,16 @@ function withDefaultDiameter(state: BoardState, kind: RoundKind, value: number):
       : { ...state, defaultViaDiameter: value };
 }
 
+/** The shot currently displayed/edited/exported for a side, if any. */
+function activeShot(state: BoardState, side: Side): Shot | null {
+  const photos = state.images[side];
+  if (!photos) return null;
+  return photos.shots[photos.activeShotId] ?? null;
+}
+
 /** The pixel space a point is mirrored within, or null if it isn't known yet. */
 function boardSizePx(state: BoardState, side: Side): Size | null {
-  return state.alignedSize ?? state.images[side] ?? null;
+  return state.alignedSize ?? activeShot(state, side) ?? null;
 }
 
 /** Drop a selection that no longer points at anything that exists. */
@@ -177,21 +189,56 @@ function padConnections(state: BoardState, side: Side, rect: Rect) {
 
 export function boardReducer(state: BoardState, action: Action): BoardState {
   switch (action.type) {
-    case 'LOAD_IMAGE':
+    case 'ADD_SHOT': {
+      const photos = state.images[action.side];
+      const id = `shot-${action.side}-${crypto.randomUUID()}`;
+      const shot: Shot = {
+        id,
+        name: action.name,
+        src: action.raw.src,
+        width: action.raw.width,
+        height: action.raw.height,
+        raw: action.raw,
+      };
       return {
         ...state,
-        images: { ...state.images, [action.side]: action.image },
+        images: {
+          ...state.images,
+          [action.side]: {
+            // The first shot of a side is active by default; later shots stay
+            // alternates until the user switches to them.
+            activeShotId: photos?.activeShotId ?? id,
+            shots: { ...(photos?.shots ?? {}), [id]: shot },
+          },
+        },
+      };
+    }
+
+    case 'ALIGN_SHOT': {
+      const { side, shotId, corners, correctedSrc, width, height } = action;
+      const photos = state.images[side];
+      const target = photos?.shots[shotId];
+      if (!photos || !target) return state;
+
+      const alignedShot: Shot = { ...target, src: correctedSrc, width, height, corners };
+      const nextImages = {
+        ...state.images,
+        [side]: { ...photos, shots: { ...photos.shots, [shotId]: alignedShot } },
       };
 
-    case 'APPLY_ALIGNMENT': {
-      const { side, raw, corners, correctedSrc, width, height } = action;
-      const image: BoardImage = { src: correctedSrc, width, height, raw, corners };
+      // A second, non-active shot warping into the side's already-established
+      // frame is purely additive — it doesn't touch anything already drawn,
+      // because that frame (and everything in it) hasn't changed.
+      if (state.alignedSize && shotId !== photos.activeShotId) {
+        return { ...state, images: nextImages };
+      }
 
-      // The corrected image is a new pixel space, so anything already drawn on
-      // this side no longer lines up: drop this side's traces and pads. Vias
-      // survive — this side's half is re-derived by mirroring the other side's
-      // position into the new space, and only a via with nothing left on either
-      // side is dropped.
+      // Otherwise this establishes or changes the side's canonical pixel
+      // space: the corrected image is a new raster, so anything already drawn
+      // on this side no longer lines up and its traces/pads are dropped. Vias
+      // survive — this side's half is re-derived by mirroring the other
+      // side's position into the new space, and only a via with nothing left
+      // on either side is dropped.
       const traces = state.traces.filter((t) => t.side !== side);
       const pads = state.pads.filter((p) => p.side !== side);
       const other: Side = side === 'front' ? 'back' : 'front';
@@ -230,7 +277,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       return {
         ...state,
         ...next,
-        images: { ...state.images, [side]: image },
+        images: nextImages,
         alignedSize: state.alignedSize ?? { width, height },
         selection: pruneSelection(state, next),
         draftTrace: state.draftTrace?.side === side ? null : state.draftTrace,
@@ -239,6 +286,40 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         padArray: null,
         // A pick in flight can't be trusted once a side's pads are rebuilt.
         padPick: [],
+      };
+    }
+
+    case 'SET_ACTIVE_SHOT': {
+      const photos = state.images[action.side];
+      if (!photos || !photos.shots[action.shotId] || photos.activeShotId === action.shotId) {
+        return state;
+      }
+      return {
+        ...state,
+        images: { ...state.images, [action.side]: { ...photos, activeShotId: action.shotId } },
+      };
+    }
+
+    case 'DELETE_SHOT': {
+      const photos = state.images[action.side];
+      if (!photos || !photos.shots[action.shotId]) return state;
+      const { [action.shotId]: _removed, ...rest } = photos.shots;
+      const remainingIds = Object.keys(rest);
+
+      if (remainingIds.length === 0) {
+        // No shots left for this side — same end state as never having
+        // uploaded one.
+        return { ...state, images: { ...state.images, [action.side]: null } };
+      }
+
+      // Falling back to another shot when the active one is deleted is
+      // arbitrary (first remaining), not inferred — there's no principled
+      // "next" shot.
+      const activeShotId =
+        photos.activeShotId === action.shotId ? remainingIds[0] : photos.activeShotId;
+      return {
+        ...state,
+        images: { ...state.images, [action.side]: { activeShotId, shots: rest } },
       };
     }
 
@@ -294,7 +375,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       // Same for vias: any point sitting on one connects the trace to it. Points
       // clicked on a via were snapped to its centre, so this picks those up, and
       // it also catches a point dropped on a via without snapping.
-      const scale = pxPerUnit(state.images[draft.side], state.boardSize, state.unit);
+      const scale = pxPerUnit(activeShot(state, draft.side), state.boardSize, state.unit);
       const touchedVias = state.vias.filter((v) =>
         draft.points.some((p) => snapVia([v], draft.side, p, scale) !== null),
       );
@@ -390,7 +471,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
 
     case 'ADD_TEST_POINT': {
       // A test point is a round pad placed by one click, centred on it.
-      const scale = pxPerUnit(state.images[action.side], state.boardSize, state.unit);
+      const scale = pxPerUnit(activeShot(state, action.side), state.boardSize, state.unit);
       const size = state.defaultTestPointDiameter * scale;
       const rect: Rect = {
         x: Math.round(action.point.x - size / 2),
@@ -434,7 +515,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
 
     case 'ADD_PACKAGE': {
       // Both pads of the footprint land in one click, as one part.
-      const scale = pxPerUnit(state.images[action.side], state.boardSize, state.unit);
+      const scale = pxPerUnit(activeShot(state, action.side), state.boardSize, state.unit);
       const pkg = SMD_PACKAGES[state.packageIndex];
       const rects = packagePads(pkg, action.point, scale, state.packageRotated);
 
@@ -661,7 +742,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       if (!pad) return state;
 
       // Keep the pad on the photo — a pad dragged off the edge is unreachable.
-      const image = state.images[pad.side];
+      const image = activeShot(state, pad.side);
       const clamp = (v: number, max: number) => Math.max(0, Math.min(v, max));
       const x = image ? clamp(pad.x + action.dx, image.width - pad.width) : pad.x + action.dx;
       const y = image ? clamp(pad.y + action.dy, image.height - pad.height) : pad.y + action.dy;
@@ -799,7 +880,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         ...state,
         pads: state.pads.map((p) => {
           if (p.id !== action.id) return p;
-          const scale = pxPerUnit(state.images[p.side], state.boardSize, state.unit);
+          const scale = pxPerUnit(activeShot(state, p.side), state.boardSize, state.unit);
           const size = clampLength(action.diameter, state.unit) * scale;
           return {
             ...p,

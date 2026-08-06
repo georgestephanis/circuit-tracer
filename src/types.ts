@@ -20,15 +20,30 @@ export interface RawImage {
   height: number;
 }
 
-export interface BoardImage {
+/**
+ * One uploaded photo of a side — e.g. "Populated" and "Bare" shots of the
+ * front. Every shot of a side warps into that side's shared `alignedSize`
+ * (see `BoardState.alignedSize`), so `Trace`/`Pad`/`Via` — which belong to
+ * the *side*, not to any one shot — are unaffected by which shot is active.
+ */
+export interface Shot {
+  id: string;
+  /** User-facing label, e.g. "Populated" or "Bare". */
+  name: string;
   /** The corrected/working image — what the editor draws and the export embeds. */
   src: string;
   width: number;
   height: number;
-  /** The untouched original upload, kept once this side has been aligned. */
+  /** The untouched original upload, kept once this shot has been aligned. */
   raw?: RawImage;
-  /** The 4 board corners, in `raw`'s pixel space, clockwise from top-left. */
+  /** This shot's own 4 board corners, in `raw`'s pixel space, clockwise from top-left. */
   corners?: Point[];
+}
+
+/** A side's collection of shots, plus which one is currently displayed/exported. */
+export interface SidePhotos {
+  activeShotId: string;
+  shots: Record<string, Shot>;
 }
 
 export interface Trace {
@@ -139,7 +154,7 @@ export interface Selection {
 export interface BoardState {
   /** Used as the export's <title> and the downloaded filename. */
   boardName: string;
-  images: Record<Side, BoardImage | null>;
+  images: Record<Side, SidePhotos | null>;
   traces: Trace[];
   /** Every through-board opening, of both kinds — see `Via.kind`. */
   vias: Via[];

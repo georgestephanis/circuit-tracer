@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
-import { GROUND_COLOR, type BoardImage, type BoardState, type Point, type Side } from '../types';
+import { GROUND_COLOR, type BoardState, type Point, type RawImage, type Side } from '../types';
 import {
   type Rect,
   VIA_GRAB_FLOOR_PX,
@@ -27,7 +27,7 @@ function clamp(v: number, lo: number, hi: number): number {
 interface Props {
   side: Side;
   state: BoardState;
-  onLoadImage: (side: Side, image: BoardImage) => void;
+  onAddShot: (side: Side, raw: RawImage) => void;
   onCanvasClick: (side: Side, point: Point) => void;
   onCanvasDoubleClick: (side: Side) => void;
   onSelectTrace: (id: string) => void;
@@ -39,7 +39,7 @@ interface Props {
   padPick: string[];
   onTogglePadPick: (id: string) => void;
   onSelectComponent: (id: string) => void;
-  onAlign: (side: Side) => void;
+  onAlign: (side: Side, shotId: string) => void;
   onCyclePackage: (step: number) => void;
   onRotatePackage: () => void;
   /** Cursor position on the *other* side, so we can preview where a hole exits here. */
@@ -49,12 +49,16 @@ interface Props {
   overlayOpacity: number;
   /** The overlap-finder's current candidate, so its members can be haloed. */
   highlight: { traces: Set<string>; pads: Set<string>; vias: Set<string> } | null;
+  /** Whether this side's background photo is drawn at all. */
+  showBackground: boolean;
+  /** Independent on/off per SVG layer — orthogonal to overlayOpacity's fade. */
+  layerVisibility: { pads: boolean; traces: boolean; vias: boolean; components: boolean };
 }
 
 export function BoardPanel({
   side,
   state,
-  onLoadImage,
+  onAddShot,
   onCanvasClick,
   onCanvasDoubleClick,
   onSelectTrace,
@@ -71,6 +75,8 @@ export function BoardPanel({
   onHoverPoint,
   overlayOpacity,
   highlight,
+  showBackground,
+  layerVisibility,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<Point | null>(null);
@@ -89,7 +95,8 @@ export function BoardPanel({
    * how the pad is drawn.
    */
   const [padDrag, setPadDrag] = useState<{ id: string; from: Point; delta: Point } | null>(null);
-  const image = state.images[side];
+  const photos = state.images[side];
+  const image = photos ? (photos.shots[photos.activeShotId] ?? null) : null;
   const unit = state.unit;
 
   const scale = pxPerUnit(image, state.boardSize, state.unit);
@@ -290,6 +297,11 @@ export function BoardPanel({
     opacity: overlayOpacity,
     pointerEvents: overlayOpacity === 0 ? ('none' as const) : undefined,
   };
+  /** A layer's own on/off, independent of and stacked with `overlay`'s fade. */
+  const layerOverlay = (visible: boolean) => ({
+    ...overlay,
+    display: visible ? undefined : ('none' as const),
+  });
   const draft = state.draftTrace && state.draftTrace.side === side ? state.draftTrace : null;
   const padDraft = state.draftPad && state.draftPad.side === side ? state.draftPad : null;
   const padPreview = padDraft && hover ? rectFromCorners(padDraft.start, hover) : null;
@@ -363,17 +375,16 @@ export function BoardPanel({
             </>
           )}
           {image && (
-            <button type="button" onClick={() => onAlign(side)}>
+            <button type="button" onClick={() => onAlign(side, image.id)}>
               {image.corners ? 'Re-align' : 'Align'}
             </button>
           )}
         </div>
       </div>
       {!image ? (
-        <ImageUploader side={side} image={image} onLoad={onLoadImage} />
+        <ImageUploader side={side} onLoad={onAddShot} />
       ) : (
         <>
-          <ImageUploader side={side} image={image} onLoad={onLoadImage} />
           <div className="board-canvas-wrap">
             <svg
               ref={svgRef}
@@ -387,7 +398,9 @@ export function BoardPanel({
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
             >
-              <image href={image.src} x={0} y={0} width={image.width} height={image.height} />
+              {showBackground && (
+                <image href={image.src} x={0} y={0} width={image.width} height={image.height} />
+              )}
 
               {/*
                 Pads sit under the traces so the two read as one copper shape.
@@ -399,7 +412,7 @@ export function BoardPanel({
                 available from the sidebar lists, and from the canvas under any
                 other tool.
               */}
-              <g {...overlay}>
+              <g {...layerOverlay(layerVisibility.pads)}>
                 {pads.map((pad) => {
                   const selected =
                     state.selection?.kind === 'pad' && state.selection.id === pad.id;
@@ -457,7 +470,7 @@ export function BoardPanel({
                 })}
               </g>
 
-              <g {...overlay}>
+              <g {...layerOverlay(layerVisibility.components)}>
                 {state.components
                   .filter((c) => c.side === side)
                   .map((c) => {
@@ -514,7 +527,7 @@ export function BoardPanel({
                   />
                 ))}
 
-              <g {...overlay}>
+              <g {...layerOverlay(layerVisibility.traces)}>
                 {traces.map((t) => (
                   <path
                     key={t.id}
@@ -575,7 +588,7 @@ export function BoardPanel({
                 />
               )}
 
-              <g {...overlay}>
+              <g {...layerOverlay(layerVisibility.vias)}>
                 {state.vias.map((v) => {
                   const p = v[side];
                   if (!p) return null;

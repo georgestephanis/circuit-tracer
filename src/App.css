@@ -34,6 +34,75 @@
   gap: 8px;
 }
 
+.export-bar-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* The first floating popover in the app — chrome modeled on .sidebar-section,
+   but positioned absolutely under its trigger button instead of sitting
+   inline in the sidebar flow. */
+.visibility-panel-wrap {
+  position: relative;
+}
+
+.visibility-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 280px;
+  max-height: 70vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.visibility-panel h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.visibility-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.visibility-panel-shots {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.visibility-panel-shots .visibility-panel-row {
+  justify-content: space-between;
+}
+
+.shot-active {
+  font-weight: 600;
+}
+
+.visibility-panel-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+
 .restore-banner {
   grid-column: 1 / -1;
   display: flex;
@@ -159,11 +228,6 @@
 
 .uploader:hover {
   border-color: var(--accent);
-}
-
-.uploader--loaded {
-  padding: 8px;
-  text-align: right;
 }
 
 .board-canvas {
