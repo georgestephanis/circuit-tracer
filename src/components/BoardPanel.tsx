@@ -3,6 +3,7 @@ import { GROUND_COLOR, type BoardImage, type BoardState, type Point, type Side }
 import {
   type Rect,
   VIA_GRAB_FLOOR_PX,
+  componentBoundingRect,
   padAt,
   padSeriesRects,
   pointsToPath,
@@ -34,6 +35,10 @@ interface Props {
   onSelectPad: (id: string) => void;
   /** Commit a finished pad drag, as a delta in this side's image pixels. */
   onMovePad: (id: string, dx: number, dy: number) => void;
+  /** Pads shift-clicked on the canvas, waiting to be grouped into a Component. */
+  padPick: string[];
+  onTogglePadPick: (id: string) => void;
+  onSelectComponent: (id: string) => void;
   onAlign: (side: Side) => void;
   onCyclePackage: (step: number) => void;
   onRotatePackage: () => void;
@@ -56,6 +61,9 @@ export function BoardPanel({
   onSelectVia,
   onSelectPad,
   onMovePad,
+  padPick,
+  onTogglePadPick,
+  onSelectComponent,
   onAlign,
   onCyclePackage,
   onRotatePackage,
@@ -395,15 +403,21 @@ export function BoardPanel({
                 {pads.map((pad) => {
                   const selected =
                     state.selection?.kind === 'pad' && state.selection.id === pad.id;
+                  const picked = padPick.includes(pad.id);
                   const className =
                     'pad-shape' +
                     (pad.ground ? ' ground' : '') +
                     (selected ? ' selected' : '') +
+                    (picked ? ' picked' : '') +
                     // A selected pad can be dragged, so it gets the move cursor.
                     (selected && !tracing ? ' draggable' : '');
                   const fill = pad.ground ? GROUND_COLOR : pad.color;
                   const select = (e: MouseEvent<SVGElement>) => {
                     e.stopPropagation();
+                    if (e.shiftKey) {
+                      onTogglePadPick(pad.id);
+                      return;
+                    }
                     onSelectPad(pad.id);
                   };
                   const onMouseDown = (e: MouseEvent<SVGElement>) => startPadDrag(e, pad.id);
@@ -441,6 +455,42 @@ export function BoardPanel({
                     />
                   );
                 })}
+              </g>
+
+              <g {...overlay}>
+                {state.components
+                  .filter((c) => c.side === side)
+                  .map((c) => {
+                    const rect = componentBoundingRect(pads, c.padIds);
+                    if (!rect) return null;
+                    const selected =
+                      state.selection?.kind === 'component' && state.selection.id === c.id;
+                    const pad = Math.max(4, image.width * 0.006) * viewScale;
+                    const fs = image.width * 0.016 * viewScale;
+                    const select = (e: MouseEvent<SVGElement>) => {
+                      e.stopPropagation();
+                      onSelectComponent(c.id);
+                    };
+                    return (
+                      <g key={c.id} onClick={select} pointerEvents={tracing ? 'none' : undefined}>
+                        <rect
+                          x={rect.x - pad}
+                          y={rect.y - pad}
+                          width={rect.width + pad * 2}
+                          height={rect.height + pad * 2}
+                          className={'component-outline' + (selected ? ' selected' : '')}
+                        />
+                        <text
+                          x={rect.x - pad}
+                          y={rect.y - pad - fs * 0.4}
+                          className="component-label"
+                          fontSize={fs}
+                        >
+                          {c.label || c.refDes || c.id}
+                        </text>
+                      </g>
+                    );
+                  })}
               </g>
 
               {/* The pad a trace click would attach to. */}

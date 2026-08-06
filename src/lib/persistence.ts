@@ -1,5 +1,6 @@
 import type {
   BoardState,
+  Component,
   FlipAxis,
   LengthUnit,
   Pad,
@@ -19,9 +20,12 @@ const STORAGE_KEY = 'circuit-tracer/sessions/v1';
 // All read safely on older data — a pad with no `shape` is a rect, no `ground`
 // is not ground, and the flip defaults to the axis that was hardcoded before it
 // was configurable — so v2 sessions are normalized on load, not discarded.
-const SCHEMA_VERSION = 3;
+//
+// v4 added Components (pad groupings). A session written before they existed
+// simply has none, so it reads back with an empty `components` list.
+const SCHEMA_VERSION = 4;
 /** Versions whose data can be read as-is once normalized by `migrate()`. */
-const READABLE_VERSIONS = [2, SCHEMA_VERSION];
+const READABLE_VERSIONS = [2, 3, SCHEMA_VERSION];
 /** How many boards' worth of work to keep before evicting the oldest. */
 const MAX_SESSIONS = 8;
 
@@ -47,9 +51,11 @@ export interface SavedSession {
   traces: Trace[];
   vias: Via[];
   pads: Pad[];
+  components: Component[];
   nextTraceNum: number;
   nextViaNum: number;
   nextPadNum: number;
+  nextComponentNum: number;
   alignedSize: { width: number; height: number } | null;
   unit: LengthUnit;
   boardSize: PhysicalSize | null;
@@ -110,6 +116,8 @@ function migrate(s: SavedSession): SavedSession {
     pads: s.pads.map((p) => ({ ...p, shape: p.shape ?? 'rect' })),
     defaultTestPointDiameter: s.defaultTestPointDiameter ?? 0.75,
     backFlip: s.backFlip ?? 'horizontal',
+    components: s.components ?? [],
+    nextComponentNum: s.nextComponentNum ?? 1,
   };
 }
 
@@ -172,9 +180,11 @@ export function snapshotFromState(state: BoardState): SavedSession {
     traces: state.traces,
     vias: state.vias,
     pads: state.pads,
+    components: state.components,
     nextTraceNum: state.nextTraceNum,
     nextViaNum: state.nextViaNum,
     nextPadNum: state.nextPadNum,
+    nextComponentNum: state.nextComponentNum,
     alignedSize: state.alignedSize,
     unit: state.unit,
     boardSize: state.boardSize,

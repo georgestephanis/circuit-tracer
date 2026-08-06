@@ -110,6 +110,31 @@ export function padSeriesRects(source: Rect, end: Point, count: number): Rect[] 
 }
 
 /**
+ * The bounding rect around a Component's member pads, or null if none of
+ * `padIds` are found in `pads`. Shared by the canvas outline and the SVG
+ * export so the two can't drift apart.
+ */
+export function componentBoundingRect<T extends Rect & { id: string }>(
+  pads: T[],
+  padIds: string[],
+): Rect | null {
+  const idSet = new Set(padIds);
+  const members = pads.filter((p) => idSet.has(p.id));
+  if (members.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of members) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + p.width);
+    maxY = Math.max(maxY, p.y + p.height);
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
  * Where a point on one side of the board comes out on the other side.
  *
  * Which axis it mirrors about depends on how the board was turned over between

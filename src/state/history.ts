@@ -27,6 +27,7 @@ const TRANSPARENT: ReadonlySet<Action['type']> = new Set<Action['type']>([
   'ROTATE_PACKAGE',
   'START_PAD_ARRAY',
   'CANCEL_DRAFT',
+  'TOGGLE_PAD_PICK',
 ]);
 
 /**

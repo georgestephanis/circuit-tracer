@@ -242,6 +242,30 @@
   cursor: move;
 }
 
+/* Shift-clicked, waiting to be grouped into a Component. */
+.pad-shape.picked {
+  outline: 2px dashed #38bdf8;
+  outline-offset: 2px;
+}
+
+/* A Component's bounding outline + label, drawn around its member pads. */
+.component-outline {
+  fill: none;
+  stroke: #94a3b8;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  cursor: pointer;
+}
+
+.component-label {
+  fill: #f8fafc;
+  stroke: rgba(0, 0, 0, 0.85);
+  paint-order: stroke fill;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
 /* Outline around the pad a trace click would attach to. Unlike a via, the
    point isn't pulled to the centre — the trace meets the pad where you click,
    so this only says "clicking here links this pad". */

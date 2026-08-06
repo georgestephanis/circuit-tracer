@@ -97,9 +97,28 @@ export interface Pad {
   connectsVia: string[];
   /** Part of the ground net — see `GROUND_COLOR`. */
   ground?: boolean;
+  /** The `Component` this pad is a footprint of, if any. */
+  component?: string;
 }
 
 export type PadShape = 'rect' | 'round';
+
+/**
+ * A group of 2+ pads that are one physical component's footprint — e.g. the
+ * two legs of a resistor. `padIds` and `Pad.component` are kept in sync on
+ * both sides, same as every other connection in this app (see
+ * "Connections are stored bidirectionally" in AGENTS.md).
+ */
+export interface Component {
+  id: string;
+  side: Side;
+  /** Silkscreen designation, e.g. "U3". */
+  label: string;
+  refDes: string;
+  /** Free text: part number, value, datasheet link, etc. */
+  notes: string;
+  padIds: string[];
+}
 
 /**
  * Which axis the board was flipped about to photograph its back.
@@ -113,7 +132,7 @@ export type Tool = 'trace' | 'via' | 'hole' | 'pad' | 'testpoint' | 'package';
 export type RoundKind = HoleKind | 'testpoint';
 
 export interface Selection {
-  kind: 'trace' | 'via' | 'pad';
+  kind: 'trace' | 'via' | 'pad' | 'component';
   id: string;
 }
 
@@ -125,6 +144,7 @@ export interface BoardState {
   /** Every through-board opening, of both kinds — see `Via.kind`. */
   vias: Via[];
   pads: Pad[];
+  components: Component[];
   tool: Tool;
   draftTrace: { side: Side; points: Point[] } | null;
   /** First corner of a pad being placed; the next click sets the opposite corner. */
@@ -134,10 +154,17 @@ export interface BoardState {
    * spaced from that pad to wherever the next click lands.
    */
   padArray: { sourceId: string; count: number } | null;
+  /**
+   * Pads shift-clicked on the canvas, waiting to be grouped into a
+   * `Component`. Same "armed by a click, cleared by `SET_TOOL`/`CANCEL_DRAFT`"
+   * lifecycle as `draftPad`/`padArray`. Always pads on a single side.
+   */
+  padPick: string[];
   selection: Selection | null;
   nextTraceNum: number;
   nextViaNum: number;
   nextPadNum: number;
+  nextComponentNum: number;
   /** Shared corrected-image size, established by whichever side is aligned first. */
   alignedSize: { width: number; height: number } | null;
   /** Unit all physical measurements in this state are expressed in. */

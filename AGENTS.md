@@ -142,6 +142,21 @@ where a pad is, so moving one recomputes them from the new rect and has to drop
 the back-links it no longer earns as well as add the new ones. A geometry change
 to a pad is a connection change — don't carry the old lists over.
 
+### A Component is a grouping relationship, not a new kind of pad
+
+`Component` clusters 2+ existing `Pad`s (e.g. the two legs of a resistor) under
+a shared label/refDes/notes. It's another bidirectional link — `component.padIds`
+and `pad.component` must be kept in sync the same way `connectsTrace`/
+`connectsVia` are (see above). `DELETE_SELECTED` on a pad has to strip it from
+its component's `padIds` too, and if that drops the component below 2 pads,
+delete the component itself — a 1-pad "group" isn't a grouping.
+
+`padPick` (pads shift-clicked on canvas, not yet grouped) is the same kind of
+armed, canvas-consumed state as `draftPad`/`padArray` — see the last Gotcha
+below. It must be cleared by `SET_TOOL` and `CANCEL_DRAFT`, and pads offered to
+it are rejected if they're on a different side or already claimed by a
+component (a component can't straddle both photos or overlap another one).
+
 ### Persistence is versioned and photos are never stored
 
 `SavedSession` deliberately excludes images — two base64 photos would exhaust

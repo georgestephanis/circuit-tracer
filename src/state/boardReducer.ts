@@ -1,6 +1,7 @@
 import type {
   BoardImage,
   BoardState,
+  Component,
   HoleKind,
   LengthUnit,
   Pad,
@@ -58,6 +59,13 @@ export type Action =
   /** Arm a pad series off an existing pad; the next canvas click ends it. */
   | { type: 'START_PAD_ARRAY'; padId: string; count: number }
   | { type: 'PLACE_PAD_ARRAY'; side: Side; point: Point }
+  /** Add or remove a pad from the pick set a Component will be grouped from. */
+  | { type: 'TOGGLE_PAD_PICK'; id: string }
+  /** Group the current pad pick set into a new Component. */
+  | { type: 'ADD_COMPONENT'; label: string; refDes: string; notes: string }
+  | { type: 'RENAME_COMPONENT'; id: string; label: string }
+  | { type: 'SET_COMPONENT_REFDES'; id: string; refDes: string }
+  | { type: 'SET_COMPONENT_NOTES'; id: string; notes: string }
   | { type: 'DELETE_SELECTED' }
   | { type: 'RENAME_TRACE'; id: string; label: string }
   | { type: 'RENAME_VIA'; id: string; label: string }
@@ -89,14 +97,17 @@ export const initialState: BoardState = {
   traces: [],
   vias: [],
   pads: [],
+  components: [],
   tool: 'trace',
   draftTrace: null,
   draftPad: null,
   padArray: null,
+  padPick: [],
   selection: null,
   nextTraceNum: 1,
   nextViaNum: 1,
   nextPadNum: 1,
+  nextComponentNum: 1,
   alignedSize: null,
   unit: 'mm',
   boardSize: null,
@@ -132,12 +143,15 @@ function pruneSelection(state: BoardState, next: Partial<BoardState>): BoardStat
   const traces = next.traces ?? state.traces;
   const vias = next.vias ?? state.vias;
   const pads = next.pads ?? state.pads;
+  const components = next.components ?? state.components;
   const alive =
     sel.kind === 'trace'
       ? traces.some((t) => t.id === sel.id)
       : sel.kind === 'via'
         ? vias.some((v) => v.id === sel.id)
-        : pads.some((p) => p.id === sel.id);
+        : sel.kind === 'pad'
+          ? pads.some((p) => p.id === sel.id)
+          : components.some((c) => c.id === sel.id);
   return alive ? sel : null;
 }
 
@@ -195,6 +209,9 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       const keptPadIds = new Set(pads.map((p) => p.id));
       const keptViaIds = new Set(vias.map((v) => v.id));
 
+      // This side's pads are gone, so any component built from them is too.
+      const components = state.components.filter((c) => c.side !== side);
+
       const next = {
         traces: traces.map((t) => ({
           ...t,
@@ -207,6 +224,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
           connectsVia: p.connectsVia.filter((id) => keptViaIds.has(id)),
         })),
         vias,
+        components,
       };
 
       return {
@@ -219,11 +237,20 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         draftPad: state.draftPad?.side === side ? null : state.draftPad,
         // This side's pads are gone, so any series armed off one of them is too.
         padArray: null,
+        // A pick in flight can't be trusted once a side's pads are rebuilt.
+        padPick: [],
       };
     }
 
     case 'SET_TOOL':
-      return { ...state, tool: action.tool, draftTrace: null, draftPad: null, padArray: null };
+      return {
+        ...state,
+        tool: action.tool,
+        draftTrace: null,
+        draftPad: null,
+        padArray: null,
+        padPick: [],
+      };
 
     case 'ADD_TRACE_POINT': {
       const draft = state.draftTrace;
@@ -247,7 +274,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
     }
 
     case 'CANCEL_DRAFT':
-      return { ...state, draftTrace: null, draftPad: null, padArray: null };
+      return { ...state, draftTrace: null, draftPad: null, padArray: null, padPick: [] };
 
     case 'FINISH_TRACE': {
       const draft = state.draftTrace;
@@ -546,6 +573,71 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       };
     }
 
+    case 'TOGGLE_PAD_PICK': {
+      const pad = state.pads.find((p) => p.id === action.id);
+      // Already part of a component, or gone — nothing to pick.
+      if (!pad || pad.component) return state;
+      if (state.padPick.includes(action.id)) {
+        return { ...state, padPick: state.padPick.filter((id) => id !== action.id) };
+      }
+      // A component's pads are all on one side, so a pick on the other side
+      // starts a fresh set rather than mixing sides.
+      const first = state.pads.find((p) => p.id === state.padPick[0]);
+      const padPick = first && first.side !== pad.side ? [action.id] : [...state.padPick, action.id];
+      return { ...state, padPick };
+    }
+
+    case 'ADD_COMPONENT': {
+      const padIds = state.padPick;
+      if (padIds.length < 2) return state;
+      const pad = state.pads.find((p) => p.id === padIds[0]);
+      if (!pad) return state;
+
+      const id = `comp-${pad.side}-${state.nextComponentNum}`;
+      const component: Component = {
+        id,
+        side: pad.side,
+        label: action.label,
+        refDes: action.refDes,
+        notes: action.notes,
+        padIds,
+      };
+      const padIdSet = new Set(padIds);
+
+      return {
+        ...state,
+        components: [...state.components, component],
+        pads: state.pads.map((p) => (padIdSet.has(p.id) ? { ...p, component: id } : p)),
+        nextComponentNum: state.nextComponentNum + 1,
+        padPick: [],
+        selection: { kind: 'component', id },
+      };
+    }
+
+    case 'RENAME_COMPONENT':
+      return {
+        ...state,
+        components: state.components.map((c) =>
+          c.id === action.id ? { ...c, label: action.label } : c,
+        ),
+      };
+
+    case 'SET_COMPONENT_REFDES':
+      return {
+        ...state,
+        components: state.components.map((c) =>
+          c.id === action.id ? { ...c, refDes: action.refDes } : c,
+        ),
+      };
+
+    case 'SET_COMPONENT_NOTES':
+      return {
+        ...state,
+        components: state.components.map((c) =>
+          c.id === action.id ? { ...c, notes: action.notes } : c,
+        ),
+      };
+
     case 'RENAME_TRACE':
       return {
         ...state,
@@ -731,9 +823,11 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         traces: session.traces,
         vias: session.vias,
         pads: session.pads,
+        components: session.components,
         nextTraceNum: session.nextTraceNum,
         nextViaNum: session.nextViaNum,
         nextPadNum: session.nextPadNum,
+        nextComponentNum: session.nextComponentNum,
         alignedSize: session.alignedSize,
         unit: session.unit,
         boardSize: session.boardSize,
@@ -770,6 +864,12 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       }
 
       if (kind === 'pad') {
+        // A pad's component loses that pad too, and drops below "two or
+        // more" pads the whole component goes with it.
+        const releasedComponents = state.components
+          .map((c) => (c.padIds.includes(id) ? { ...c, padIds: c.padIds.filter((p) => p !== id) } : c))
+          .filter((c) => c.padIds.length >= 2);
+
         return {
           ...state,
           pads: state.pads.filter((p) => p.id !== id),
@@ -777,7 +877,18 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
             ...t,
             connectsPad: t.connectsPad.filter((p) => p !== id),
           })),
+          components: releasedComponents,
           padArray: state.padArray?.sourceId === id ? null : state.padArray,
+          padPick: state.padPick.filter((p) => p !== id),
+          selection: null,
+        };
+      }
+
+      if (kind === 'component') {
+        return {
+          ...state,
+          components: state.components.filter((c) => c.id !== id),
+          pads: state.pads.map((p) => (p.component === id ? { ...p, component: undefined } : p)),
           selection: null,
         };
       }

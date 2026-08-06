@@ -153,7 +153,7 @@ can't see.
 | `1`–`6` | Trace, Via, Hole, Pad, Test point, SMD package |
 | `G` | Toggle ground on the selected via, hole, or pad |
 | `Enter` | Finish the current trace |
-| `Esc` | Cancel the in-progress trace, pad, or pad series |
+| `Esc` | Cancel the in-progress trace, pad, pad series, or component pad-pick |
 | `Delete` / `Backspace` | Delete the selection |
 | `Ctrl`/`Cmd` `+Z` | Undo |
 | `Shift`+`Ctrl`/`Cmd` `+Z`, or `Ctrl`/`Cmd` `+Y` | Redo |
@@ -231,6 +231,36 @@ spaced positions between them, endpoint included. Copies keep the source's size
 and color — a series is one connector — and each one merges with any trace or
 via it lands on, exactly like a hand-drawn pad. The series runs along one side;
 a click on the opposite panel is ignored rather than placing pads you can't see.
+
+## Components
+
+A **Component** groups 2+ pads that belong to the same part (e.g. both legs
+of a resistor) under one silkscreen label, reference designator, and free-
+text notes — it's how the netlist export (below) knows what a pin belongs to.
+
+1. **Shift-click** pads on the canvas to pick them — this works with any tool
+   active, and picking is separate from normal single-item selection. A
+   picked pad gets a dashed blue outline; shift-clicking it again un-picks
+   it. Pads already in a component, or on the other side of the board, can't
+   be picked into the same group.
+2. In the **Components** sidebar section, fill in a label/ref. designator/
+   notes (all optional) and click **Group** once 2+ pads are picked, or
+   **Clear** to abandon the pick without grouping.
+3. A grouped component draws as a dashed outline around its member pads with
+   its label above it, on the canvas and in the exported SVG. Click the
+   outline to select it; **Delete**/**Backspace** removes it (its pads are
+   freed, not deleted). Deleting a pad that would leave a component with
+   fewer than 2 pads deletes the component too.
+
+### Netlist export
+
+Once at least one component exists, **Export netlist** in the header downloads
+a JSON file of `{ component, pin, net }` rows — one per pad in every
+component, with the net name derived from existing trace/via connectivity
+(grounded copper is always net `"GND"`; otherwise a connecting trace's label,
+or an anonymous `NET1`, `NET2`, … if none of that group's traces are labeled).
+It's meant to be imported into a real EDA tool (KiCad, EasyEDA, …) to build a
+schematic from, not read as one directly.
 
 ## SMD packages
 
@@ -360,6 +390,12 @@ The export is a single `<svg>` containing two side-by-side groups:
             data-side="front" data-diameter="0.4" cx="290" cy="100" r="2" />
     <circle id="hole-2-front" class="via via--hole" data-via-id="hole-2" data-kind="hole"
             data-side="front" data-diameter="1" cx="60" cy="40" r="5" />
+    <g id="comp-front-1" class="component" data-component-id="comp-front-1" data-label="R1"
+       data-ref-des="R1" data-notes="10k 0603" data-pad-count="2"
+       data-pads="pad-front-1 pad-front-2">
+      <rect x="265" y="75" width="60" height="50" fill="none" stroke="#94a3b8"
+            stroke-width="1.5" stroke-dasharray="4 3" />
+    </g>
   </g>
 
   <g data-side="back" data-px-per-unit="10" transform="translate({front.width + 40}, 0)">
@@ -437,3 +473,8 @@ Notes for parsers:
   label.
 - `data-diameter` on a `<circle>` is its physical diameter; `r` is half of that
   in pixels. Both halves always carry the same `data-diameter`.
+- A `<g class="component">` is a non-interactive outline drawn around the pads
+  a [Component](#components) groups. `data-pads` lists their ids (space-
+  separated); `data-ref-des` and `data-notes` are present only if the user
+  filled them in. Its `<rect>` child has no `id`/`data-*` of its own — the
+  group is the addressable element.

@@ -7,12 +7,14 @@ import { Toolbar } from './components/Toolbar';
 import { TraceList } from './components/TraceList';
 import { ViaList } from './components/ViaList';
 import { PadList } from './components/PadList';
+import { ComponentList } from './components/ComponentList';
 import { SidebarSection } from './components/SidebarSection';
 import { ScalePanel } from './components/ScalePanel';
 import { ExportBar } from './components/ExportBar';
 import { RestoreBanner } from './components/RestoreBanner';
 import { OverlapBanner } from './components/OverlapBanner';
 import { buildCombinedSvg, downloadSvg } from './lib/svgExport';
+import { downloadNetlist } from './lib/netlist';
 import { loadImageElement, quadOutputSize, warpPerspective } from './lib/homography';
 import { findOverlapGroups, type OverlapGroup } from './lib/overlaps';
 import { pxPerUnit } from './lib/scale';
@@ -264,6 +266,15 @@ function App() {
     }
   }
 
+  function handleExportNetlist() {
+    try {
+      downloadNetlist(state, state.boardName);
+      setExportError(null);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
@@ -299,7 +310,7 @@ function App() {
         // Ground the selection, so a run of them can be flagged from the canvas
         // instead of hunting checkboxes in the sidebar.
         const sel = state.selection;
-        if (sel && sel.kind !== 'trace') {
+        if (sel && (sel.kind === 'via' || sel.kind === 'pad')) {
           e.preventDefault();
           dispatch({ type: 'TOGGLE_GROUND', kind: sel.kind, id: sel.id });
         }
@@ -309,7 +320,7 @@ function App() {
       if (e.key === 'Enter') {
         if (state.draftTrace) dispatch({ type: 'FINISH_TRACE' });
       } else if (e.key === 'Escape') {
-        if (state.draftTrace || state.draftPad || state.padArray) {
+        if (state.draftTrace || state.draftPad || state.padArray || state.padPick.length > 0) {
           dispatch({ type: 'CANCEL_DRAFT' });
         }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -321,7 +332,15 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [state.draftTrace, state.draftPad, state.padArray, state.selection, aligning, alignBusy]);
+  }, [
+    state.draftTrace,
+    state.draftPad,
+    state.padArray,
+    state.padPick,
+    state.selection,
+    aligning,
+    alignBusy,
+  ]);
 
   return (
     <div className="app">
@@ -329,9 +348,11 @@ function App() {
         <h1>Circuit Board Tracer</h1>
         <ExportBar
           canExport={canExport}
+          canExportNetlist={state.components.length > 0}
           boardName={state.boardName}
           onSetBoardName={(boardName) => dispatch({ type: 'SET_BOARD_NAME', boardName })}
           onExport={handleExport}
+          onExportNetlist={handleExportNetlist}
         />
       </header>
       {exportError && <div className="export-error">{exportError}</div>}
@@ -399,6 +420,11 @@ function App() {
             onSelectVia={(id) => dispatch({ type: 'SELECT', selection: { kind: 'via', id } })}
             onSelectPad={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
             onMovePad={(id, dx, dy) => dispatch({ type: 'MOVE_PAD', id, dx, dy })}
+            padPick={state.padPick}
+            onTogglePadPick={(id) => dispatch({ type: 'TOGGLE_PAD_PICK', id })}
+            onSelectComponent={(id) =>
+              dispatch({ type: 'SELECT', selection: { kind: 'component', id } })
+            }
             onAlign={handleAlign}
             onCyclePackage={(step) => dispatch({ type: 'CYCLE_PACKAGE', step })}
             onRotatePackage={() => dispatch({ type: 'ROTATE_PACKAGE' })}
@@ -507,6 +533,21 @@ function App() {
             onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
             onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
             onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'pad', id })}
+          />
+        </SidebarSection>
+        <SidebarSection title="Components" count={state.components.length}>
+          <ComponentList
+            components={state.components}
+            selectedId={state.selection?.kind === 'component' ? state.selection.id : null}
+            padPick={state.padPick}
+            onSelect={(id) => dispatch({ type: 'SELECT', selection: { kind: 'component', id } })}
+            onGroup={(label, refDes, notes) =>
+              dispatch({ type: 'ADD_COMPONENT', label, refDes, notes })
+            }
+            onClearPick={() => dispatch({ type: 'CANCEL_DRAFT' })}
+            onRename={(id, label) => dispatch({ type: 'RENAME_COMPONENT', id, label })}
+            onSetRefDes={(id, refDes) => dispatch({ type: 'SET_COMPONENT_REFDES', id, refDes })}
+            onSetNotes={(id, notes) => dispatch({ type: 'SET_COMPONENT_NOTES', id, notes })}
           />
         </SidebarSection>
         {(['via', 'hole'] as const).map((kind) => (

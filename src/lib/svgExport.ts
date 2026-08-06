@@ -1,6 +1,15 @@
-import { GROUND_COLOR, type BoardState, type Pad, type Side, type Trace, type Via } from '../types';
-import { pointsToPath } from './geometry';
+import {
+  GROUND_COLOR,
+  type BoardState,
+  type Component,
+  type Pad,
+  type Side,
+  type Trace,
+  type Via,
+} from '../types';
+import { componentBoundingRect, pointsToPath } from './geometry';
 import { UNIT_LABELS, pxPerUnit } from './scale';
+import { downloadFile, safeFileName } from './download';
 
 const GAP = 40;
 
@@ -59,6 +68,27 @@ function renderPad(pad: Pad, scale: number): string {
   return `<rect id="${pad.id}" ${common} data-width="${num(pad.width / scale)}" data-height="${num(pad.height / scale)}" x="${pad.x}" y="${pad.y}" width="${pad.width}" height="${pad.height}" fill="${fill}" />`;
 }
 
+/**
+ * A Component's outline, as a non-interactive group carrying the fields a
+ * downstream tool (or a human) would want when re-deriving a schematic:
+ * label, ref-des, notes, and which pads it groups. Additive attributes only,
+ * so an SVG parser that predates Components is unaffected.
+ */
+function renderComponent(c: Component, pads: Pad[]): string {
+  const rect = componentBoundingRect(
+    pads.filter((p) => p.side === c.side),
+    c.padIds,
+  );
+  if (!rect) return '';
+  const padAttr = ` data-pad-count="${c.padIds.length}"`;
+  const refDesAttr = c.refDes ? ` data-ref-des="${escapeXml(c.refDes)}"` : '';
+  const notesAttr = c.notes ? ` data-notes="${escapeXml(c.notes)}"` : '';
+  const padsAttr = c.padIds.length ? ` data-pads="${escapeXml(c.padIds.join(' '))}"` : '';
+  return `<g id="${c.id}" class="component" data-component-id="${c.id}"${labelAttr(c.label)}${refDesAttr}${notesAttr}${padAttr}${padsAttr}>
+    <rect x="${num(rect.x)}" y="${num(rect.y)}" width="${num(rect.width)}" height="${num(rect.height)}" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 3" />
+  </g>`;
+}
+
 function renderSideGroup(state: BoardState, side: Side, offsetX: number): string {
   const image = state.images[side];
   if (!image) return '';
@@ -71,10 +101,14 @@ function renderSideGroup(state: BoardState, side: Side, offsetX: number): string
     .filter((t) => t.side === side)
     .map((t) => renderTrace(t, t.width ?? state.defaultTraceWidth, scale));
   const vias = state.vias.map((v) => renderVia(v, side, scale)).filter(Boolean);
+  const components = state.components
+    .filter((c) => c.side === side)
+    .map((c) => renderComponent(c, state.pads))
+    .filter(Boolean);
 
   return `<g data-side="${side}" data-px-per-unit="${num(scale)}" transform="translate(${offsetX}, 0)">
     <image href="${image.src}" x="0" y="0" width="${image.width}" height="${image.height}" />
-    ${[...pads, ...traces, ...vias].join('\n    ')}
+    ${[...pads, ...traces, ...vias, ...components].join('\n    ')}
   </g>`;
 }
 
@@ -110,14 +144,5 @@ export function buildCombinedSvg(state: BoardState, boardName: string): string {
 }
 
 export function downloadSvg(svgSource: string, boardName: string): void {
-  const safeName = boardName.trim() ? boardName.trim().replace(/[^a-z0-9-_]+/gi, '-') : 'circuit-board';
-  const blob = new Blob([svgSource], { type: 'image/svg+xml' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${safeName}.svg`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  downloadFile(svgSource, `${safeFileName(boardName)}.svg`, 'image/svg+xml');
 }
