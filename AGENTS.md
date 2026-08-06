@@ -55,6 +55,10 @@ The shape to preserve:
   ELK graph is the same idea one step further: it's *derived* from
   `BoardState` (via `lib/netlist.ts`), rebuilt on demand by `SchematicView`,
   and never stored anywhere — like `svgExport.ts`'s output, not like a via.
+  Within it, `inferDeviceKind` is a cosmetic heuristic on `refDes` text (does
+  it start with R/C/L/D?), not authoritative data — a wrong guess just picks
+  the wrong symbol, so it doesn't need a schema field, migration, or to be
+  "fixed" anywhere but the rendering.
 - **`historyReducer` wraps `boardReducer`**, so undo comes free with that rule:
   anything dispatched is undoable unless listed in `TRANSPARENT` (view-only, so
   undo steps over it) or `RESETS` (clears the stack). When you add an action,

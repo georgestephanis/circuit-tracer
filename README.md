@@ -265,15 +265,28 @@ into a real EDA tool (KiCad, EasyEDA, …) on its own.
 ### Schematic view
 
 **View schematic** in the header opens a generated schematic: each component
-is drawn as a labeled box with its pads as pins, wired together by net
-(auto-laid-out with [elkjs](https://github.com/kieler/elkjs), with orthogonal
-routing so it reads like a schematic rather than a generic graph). A pin's
-left/right side is **cosmetic only** — pads carry no electrical direction, so
-it's not an input/output distinction, just how the pick order was split
-across the two sides of the box. Nets touching only one component pin (the
-rest of that copper isn't part of any component) draw as a short labeled stub
-instead of being silently dropped. **Download SVG** saves the same rendering
-that's shown inline.
+is drawn as a box (or a real symbol — see below) with its pads as pins, wired
+together by net (auto-laid-out with [elkjs](https://github.com/kieler/elkjs),
+with orthogonal routing and tuned crossing-minimization so it reads like a
+schematic rather than a tangle of wires). A pin's left/right side is
+**cosmetic only** — pads carry no electrical direction, so it's not an
+input/output distinction, just how the pick order was split across the two
+sides of the box; ELK is still free to reorder pins within a side to reduce
+crossings. Nets touching only one component pin (the rest of that copper
+isn't part of any component) draw as a short labeled stub instead of being
+silently dropped — a stub on the `GND` net draws the standard earth-ground
+glyph instead of a bare line.
+
+A 2-pad component whose refDes starts with `R`, `C`, `L`, or `D` is drawn as
+a real resistor/capacitor/inductor/diode symbol instead of a generic labeled
+box (this is a cosmetic guess from the refDes text, not stored data — a
+component named "R7" that isn't actually a resistor just gets a resistor
+glyph). Every other component — including anything with 3+ pins, like
+transistors or ICs — keeps the generic box, since real transistor/IC symbols
+need pin geometry this doesn't attempt. These symbol shapes were inspired by
+the per-device glyphs in [netlist-viewer](https://github.com/f18m/netlist-viewer)
+(by Francesco Montorsi, GPL-2.0) — hand-drawn here, not ported code.
+**Download SVG** saves the same rendering that's shown inline.
 
 ## SMD packages
 
