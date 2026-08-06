@@ -51,7 +51,10 @@ The shape to preserve:
   case to the `Action` union — don't reach for context or a store. The
   corollary: how the board is *displayed* is not board state. `overlayOpacity`
   lives in `App.tsx` as plain `useState` for that reason, which is what keeps it
-  out of the undo history, the autosave, and the export. `lib/schematic.ts`'s
+  out of the undo history, the autosave, and the export. `showBackground`,
+  `layerVisibility`, and `excludeImages` are the same idea: which photo/layers
+  are shown and whether export embeds photos are all view/output choices, not
+  board data, so none of them go through the reducer. `lib/schematic.ts`'s
   ELK graph is the same idea one step further: it's *derived* from
   `BoardState` (via `lib/netlist.ts`), rebuilt on demand by `SchematicView`,
   and never stored anywhere — like `svgExport.ts`'s output, not like a via.
@@ -63,6 +66,10 @@ The shape to preserve:
   anything dispatched is undoable unless listed in `TRANSPARENT` (view-only, so
   undo steps over it) or `RESETS` (clears the stack). When you add an action,
   decide which bucket it's in — the default, being undoable, is usually right.
+  `SET_ACTIVE_SHOT` is `TRANSPARENT`: it only switches which already-uploaded
+  shot is displayed, so Ctrl-Z shouldn't step through it. `ADD_SHOT`,
+  `ALIGN_SHOT`, and `DELETE_SHOT` stay in the default bucket, since aligning
+  can discard a side's traces/vias the same way the old `APPLY_ALIGNMENT` did.
 - **Components don't dispatch.** They receive `on*` callbacks from `App.tsx`,
   which is the only place `dispatch` is called. Keep it that way; it's what
   makes the reducer readable in isolation.
@@ -78,13 +85,21 @@ coordinates, sizes, or vias.
 
 ### Two pixel spaces, and they aren't interchangeable
 
-Every coordinate is in **its own side's image pixel space**. Aligning a side
-warps its photo into a new raster, which is a *new* pixel space — anything
-already drawn on that side no longer lines up, which is why `APPLY_ALIGNMENT`
-discards that side's traces and pads.
+Every coordinate is in **its own side's image pixel space**. Aligning a side's
+*active* shot warps its photo into a new raster, which is a *new* pixel space
+— anything already drawn on that side no longer lines up, which is why
+`ALIGN_SHOT` discards that side's traces and pads in that case.
 
 Once both sides are aligned they share `alignedSize`, so their coordinates are
 comparable. Before that, they are not.
+
+A side can hold several **shots** (`SidePhotos.shots`, e.g. a "Populated" and
+a "Bare" photo) — `Shot` generalizes what used to be a single `BoardImage`.
+All of a side's shots warp into that *same* shared `alignedSize`; only the
+side's *active* shot's alignment can rewrite the shared space, so aligning a
+second, inactive shot is purely additive and never discards anything.
+`Trace`/`Pad`/`Via` belong to the side, not to any one shot, and stay
+untouched by which shot happens to be active.
 
 ### Vias and holes are one construct, stored in one array
 
@@ -169,6 +184,14 @@ component (a component can't straddle both photos or overlap another one).
 `SavedSession` deliberately excludes images — two base64 photos would exhaust
 `localStorage`. Alignment corners are saved instead and the corrected image is
 re-derived by re-warping the re-uploaded photo.
+
+v5 split each side's single alignment into named **shots** (`SavedSidePhotos`:
+`activeShotId` plus a `shots` map), so a side can carry more than one photo
+(e.g. "Populated"/"Bare") while sharing one canonical `alignedSize`. On
+restore, only the side's *active* shot is re-derived — that's the only photo
+the restore-offer key is hashed against (see `sessionKeyFor` usage in
+`App.tsx`), so any other saved shots are simply dropped and need re-uploading
+individually. Say so plainly if you touch this path; don't silently drop it.
 
 **If you change the shape of anything in `SavedSession`, bump
 `SCHEMA_VERSION`.** Then decide, per version, between two outcomes:

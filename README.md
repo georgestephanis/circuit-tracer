@@ -146,6 +146,22 @@ Previews and the trace you're currently drawing stay solid so you can still aim.
 At 0% the annotations also stop taking clicks, since you can't select what you
 can't see.
 
+## Visibility panel
+
+The **Visibility ▾** button in the header opens a popover with view controls
+that, like the Overlay slider, never touch the board itself — nothing here
+affects the undo history, autosave, or SVG export:
+
+- **Photos** — a checkbox per side to show or hide that side's background
+  photo, independent of everything drawn on top of it.
+- **Layers** — checkboxes for Pads, Traces, Vias, and Components, so you can
+  isolate one kind of annotation at a time. This stacks with the Overlay
+  slider: a hidden layer stays hidden regardless of opacity, and a visible one
+  still fades with the slider.
+- **Shots** — each side's list of uploaded photos (see [Multiple shots per
+  side](#multiple-shots-per-side)), with buttons to make one active, re-align
+  it, delete it, or upload a new one.
+
 ### Shortcuts
 
 | Key | Does |
@@ -354,6 +370,29 @@ Notes:
   position on the other side into the new pixel space. Only an opening with
   nothing left on either side is dropped.
 
+## Multiple shots per side
+
+A side can hold more than one photo — for example, a **Populated** shot with
+components in place and a **Bare** shot of the empty board underneath. Add
+more via the [Visibility panel](#visibility-panel)'s upload control for that
+side.
+
+- **All of a side's shots share one pixel space.** Each shot gets its own
+  4-corner pick, but they all warp into the same output size the side already
+  established (see [Aligning a side](#aligning-a-side) above), so traces, pads,
+  and vias — which belong to the side, not to any one photo — stay exactly
+  where you put them no matter which shot is active.
+- **One shot per side is active** at a time — that's the one shown on the
+  panel, drawn on top of, and embedded in the SVG export. Switch with **Use**
+  in the Visibility panel; this doesn't affect the board or the undo history.
+- **Re-aligning a side's active shot** still clears that side's traces and
+  pads exactly as before, since it's still what rewrites the shared pixel
+  space. Aligning a second, inactive shot never discards anything — it's just
+  registering another photo into the space that already exists.
+- **Deleting a shot** falls back to another one of that side's remaining
+  shots if it was active; deleting a side's last shot leaves that side with no
+  photo at all, same as before any photo was uploaded.
+
 ## Autosave and resuming
 
 Your work is autosaved to the browser's `localStorage` as you go — traces,
@@ -391,8 +430,24 @@ Other behavior worth knowing:
   - **v2 → migrated.** Round pads and the ground flag were added afterwards.
     Every pad written before that was a rectangle and nothing was grounded, so
     filling those in isn't a guess.
+  - **v4 → migrated.** Each side's single saved alignment becomes that side's
+    one (and active) named **shot** — see [Multiple shots per
+    side](#multiple-shots-per-side) below. A pre-v5 session only ever had one
+    photo per side, so this wrap is unambiguous, not a guess.
+
+Restoring only re-derives each side's **active** shot — that's the only photo
+the session key is matched against. If a side had more than one shot saved,
+the others are simply dropped on restore; re-upload and re-align them
+individually if you need them back.
 
 ## Exported SVG schema
+
+Check **Exclude photos** next to the Export SVG button to leave each side's
+background photo out of the file entirely — just the annotations, at the same
+scale and offsets. Useful for a smaller file, or for not distributing the
+board photos themselves. Export always uses each side's **active** shot
+(whichever is currently selected in the [Visibility panel](#visibility-panel)),
+whether or not photos are included.
 
 The export is a single `<svg>` containing two side-by-side groups:
 
