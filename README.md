@@ -26,6 +26,14 @@ npm run build   # production build (also type-checks)
    widths and via sizes are real measurements. See [Scale and
    dimensions](#scale-and-dimensions).
 4. Pick a tool in the toolbar:
+   - **Pointer** — the default tool, and the one for *selecting* things
+     rather than placing them. Click a trace, pad, via, or component to
+     select it; click empty canvas to deselect. Drag a selected pad to move
+     it, or shift-click pads to group them into a component — see
+     [Components](#components). Hovering (or selecting) a trace, pad, or via
+     highlights its whole electrical net and fades everything else on the
+     board — including the photo — so you can follow a connection across a
+     busy board. A hover takes priority over a "sticky" prior selection.
    - **Trace** — click to add points to the current path; double-click, or
      press **Enter**, to finish it. **Escape** cancels the in-progress trace,
      and "Undo point" removes the last placed point. A pending segment follows
@@ -36,7 +44,7 @@ npm run build   # production build (also type-checks)
      clicked, outlining the pad first so you can see what you'll hit. Either
      way the connection is recorded when the trace is finished, so drawing pad
      → pad links the trace to both. (To *select* something on the canvas,
-     switch tools or click it in its sidebar list.)
+     switch to the Pointer tool or click it in its sidebar list.)
    - **Via** — a small plated signal via. Click a spot on either image and it's
      placed on **both** sides at once. See [Vias and
      holes](#vias-and-holes).
@@ -57,7 +65,11 @@ npm run build   # production build (also type-checks)
    exact width or diameter, flag ground, or click to select.
    **Delete/Backspace** removes the selection. The sidebar widens and narrows
    with the window, and list rows wrap to a second line rather than clip when
-   it's narrow.
+   it's narrow. Selecting an item — from either direction — scrolls its
+   sidebar row into view if it's scrolled out of sight (this is a no-op if the
+   row's section is collapsed); selecting from the sidebar also gives the
+   matching shape on the board a brief pulse so its location is unmistakable
+   even in a far corner of a busy board.
 6. Enter a board name and click **Export SVG** once both images are uploaded.
 
 Work is autosaved as you go — see [Autosave and resuming](#autosave-and-resuming).
@@ -166,6 +178,7 @@ affects the undo history, autosave, or SVG export:
 
 | Key | Does |
 | --- | --- |
+| `0` | Pointer (select) |
 | `1`–`6` | Trace, Via, Hole, Pad, Test point, SMD package |
 | `G` | Toggle ground on the selected via, hole, or pad |
 | `Enter` | Finish the current trace |

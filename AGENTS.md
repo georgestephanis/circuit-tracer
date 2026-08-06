@@ -54,7 +54,10 @@ The shape to preserve:
   out of the undo history, the autosave, and the export. `showBackground`,
   `layerVisibility`, and `excludeImages` are the same idea: which photo/layers
   are shown and whether export embeds photos are all view/output choices, not
-  board data, so none of them go through the reducer. `lib/schematic.ts`'s
+  board data, so none of them go through the reducer. `hoveredItem` and
+  `flashTarget` follow suit too — which net is highlighted/dimmed and which
+  item just got a sidebar-selection pulse are transient display state, not
+  board data, even though they're keyed off `Selection`. `lib/schematic.ts`'s
   ELK graph is the same idea one step further: it's *derived* from
   `BoardState` (via `lib/netlist.ts`), rebuilt on demand by `SchematicView`,
   and never stored anywhere — like `svgExport.ts`'s output, not like a via.
