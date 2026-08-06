@@ -5,6 +5,7 @@ interface Props {
   onSetBoardName: (name: string) => void;
   onExport: () => void;
   onExportNetlist: () => void;
+  onViewSchematic: () => void;
 }
 
 export function ExportBar({
@@ -14,6 +15,7 @@ export function ExportBar({
   onSetBoardName,
   onExport,
   onExportNetlist,
+  onViewSchematic,
 }: Props) {
   return (
     <div className="export-bar">
@@ -28,6 +30,9 @@ export function ExportBar({
       </button>
       <button type="button" disabled={!canExportNetlist} onClick={onExportNetlist}>
         Export netlist
+      </button>
+      <button type="button" disabled={!canExportNetlist} onClick={onViewSchematic}>
+        View schematic
       </button>
       {!canExport && (
         <span className="export-hint">Upload both front and back images to export.</span>

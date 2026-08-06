@@ -51,7 +51,10 @@ The shape to preserve:
   case to the `Action` union — don't reach for context or a store. The
   corollary: how the board is *displayed* is not board state. `overlayOpacity`
   lives in `App.tsx` as plain `useState` for that reason, which is what keeps it
-  out of the undo history, the autosave, and the export.
+  out of the undo history, the autosave, and the export. `lib/schematic.ts`'s
+  ELK graph is the same idea one step further: it's *derived* from
+  `BoardState` (via `lib/netlist.ts`), rebuilt on demand by `SchematicView`,
+  and never stored anywhere — like `svgExport.ts`'s output, not like a via.
 - **`historyReducer` wraps `boardReducer`**, so undo comes free with that rule:
   anything dispatched is undoable unless listed in `TRANSPARENT` (view-only, so
   undo steps over it) or `RESETS` (clears the stack). When you add an action,

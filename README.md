@@ -259,8 +259,21 @@ a JSON file of `{ component, pin, net }` rows — one per pad in every
 component, with the net name derived from existing trace/via connectivity
 (grounded copper is always net `"GND"`; otherwise a connecting trace's label,
 or an anonymous `NET1`, `NET2`, … if none of that group's traces are labeled).
-It's meant to be imported into a real EDA tool (KiCad, EasyEDA, …) to build a
-schematic from, not read as one directly.
+It's also the input to the in-app schematic view below, and can be imported
+into a real EDA tool (KiCad, EasyEDA, …) on its own.
+
+### Schematic view
+
+**View schematic** in the header opens a generated schematic: each component
+is drawn as a labeled box with its pads as pins, wired together by net
+(auto-laid-out with [elkjs](https://github.com/kieler/elkjs), with orthogonal
+routing so it reads like a schematic rather than a generic graph). A pin's
+left/right side is **cosmetic only** — pads carry no electrical direction, so
+it's not an input/output distinction, just how the pick order was split
+across the two sides of the box. Nets touching only one component pin (the
+rest of that copper isn't part of any component) draw as a short labeled stub
+instead of being silently dropped. **Download SVG** saves the same rendering
+that's shown inline.
 
 ## SMD packages
 

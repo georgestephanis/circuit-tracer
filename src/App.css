@@ -559,3 +559,37 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+.schematic-view {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(1200px, 94vw);
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.schematic-view-header h2 {
+  margin: 0 0 4px;
+}
+
+.schematic-view-body {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  /* A generated diagram reads best on a plain white page regardless of the
+     app's own theme, and the same SVG string is what gets downloaded — so
+     it isn't themed to match dark mode the way the rest of the chrome is. */
+  background: #fff;
+  padding: 8px;
+  overflow: auto;
+}
+
+.schematic-render svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}

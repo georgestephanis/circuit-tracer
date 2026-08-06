@@ -3,6 +3,7 @@ import { historyReducer, initialHistory } from './state/history';
 import type { BoardImage, Point, Side, Tool } from './types';
 import { BoardPanel } from './components/BoardPanel';
 import { AlignOverlay } from './components/AlignOverlay';
+import { SchematicView } from './components/SchematicView';
 import { Toolbar } from './components/Toolbar';
 import { TraceList } from './components/TraceList';
 import { ViaList } from './components/ViaList';
@@ -51,6 +52,7 @@ function App() {
   const [holeHover, setHoleHover] = useState<{ side: Side; point: Point } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [aligning, setAligning] = useState<Side | null>(null);
+  const [schematicOpen, setSchematicOpen] = useState(false);
   const [alignBusy, setAlignBusy] = useState(false);
   const [alignError, setAlignError] = useState<string | null>(null);
   const [offer, setOffer] = useState<SavedSession | null>(null);
@@ -285,6 +287,11 @@ function App() {
         if (e.key === 'Escape' && !alignBusy) setAligning(null);
         return;
       }
+      if (schematicOpen) {
+        // While the schematic view is open it owns the keyboard too.
+        if (e.key === 'Escape') setSchematicOpen(false);
+        return;
+      }
 
       // Undo/redo, in both the conventional spellings.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
@@ -340,6 +347,7 @@ function App() {
     state.selection,
     aligning,
     alignBusy,
+    schematicOpen,
   ]);
 
   return (
@@ -353,6 +361,7 @@ function App() {
           onSetBoardName={(boardName) => dispatch({ type: 'SET_BOARD_NAME', boardName })}
           onExport={handleExport}
           onExportNetlist={handleExportNetlist}
+          onViewSchematic={() => setSchematicOpen(true)}
         />
       </header>
       {exportError && <div className="export-error">{exportError}</div>}
@@ -592,6 +601,10 @@ function App() {
             />
           );
         })()}
+
+      {schematicOpen && (
+        <SchematicView state={state} onClose={() => setSchematicOpen(false)} />
+      )}
     </div>
   );
 }
