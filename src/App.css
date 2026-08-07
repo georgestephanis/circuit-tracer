@@ -19,6 +19,19 @@
   flex-wrap: wrap;
 }
 
+.clear-selection-button {
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  background: transparent;
+  border-radius: 6px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.clear-selection-button:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
 .export-error {
   grid-column: 1 / -1;
   color: var(--danger);

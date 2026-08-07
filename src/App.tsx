@@ -470,6 +470,16 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>Circuit Board Tracer</h1>
+        {hasSelection && (
+          <button
+            type="button"
+            className="clear-selection-button"
+            onClick={() => dispatch({ type: 'SELECT', selection: null })}
+            title="Clear selection so the rest of the board isn't dimmed"
+          >
+            Clear selection
+          </button>
+        )}
         <ExportBar
           canExport={canExport}
           canExportNetlist={state.components.length > 0}
