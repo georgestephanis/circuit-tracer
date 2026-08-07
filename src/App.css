@@ -17,6 +17,13 @@
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--panel-bg) 80%, transparent);
+  backdrop-filter: blur(4px);
+  padding: 8px 0;
+  margin: -8px 0 0;
 }
 
 .clear-selection-button {
