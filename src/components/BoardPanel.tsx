@@ -70,6 +70,12 @@ interface Props {
   showBackground: boolean;
   /** Independent on/off per SVG layer — orthogonal to overlayOpacity's fade. */
   layerVisibility: { pads: boolean; traces: boolean; vias: boolean; components: boolean };
+  /**
+   * Cosmetic-only mirroring while working (e.g. to match how the board is
+   * physically oriented in front of you). Purely a CSS transform — never
+   * touches coordinates, geometry, or the backFlip hole mapping.
+   */
+  visualFlip: { horizontal: boolean; vertical: boolean } | null;
 }
 
 export function BoardPanel({
@@ -97,6 +103,7 @@ export function BoardPanel({
   onHoverItem,
   showBackground,
   layerVisibility,
+  visualFlip,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<Point | null>(null);
@@ -411,6 +418,13 @@ export function BoardPanel({
               ref={svgRef}
               viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
               className={`board-canvas tool-${state.tool}`}
+              style={
+                visualFlip && (visualFlip.horizontal || visualFlip.vertical)
+                  ? {
+                      transform: `scale(${visualFlip.horizontal ? -1 : 1}, ${visualFlip.vertical ? -1 : 1})`,
+                    }
+                  : undefined
+              }
               onClick={handleClick}
               onContextMenu={handleContextMenu}
               onDoubleClick={() => onCanvasDoubleClick(side)}

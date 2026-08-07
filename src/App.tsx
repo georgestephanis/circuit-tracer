@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { historyReducer, initialHistory } from './state/history';
 import type { Point, RawImage, Selection, Shot, Side, SidePhotos, Tool } from './types';
 import { BoardPanel } from './components/BoardPanel';
@@ -74,6 +74,15 @@ function App() {
   });
   const [excludeImages, setExcludeImages] = useState(false);
   const [schematicOpen, setSchematicOpen] = useState(false);
+  // Pure view state: shrink tall boards to fit the remaining viewport height
+  // instead of running off the bottom of the page.
+  const [fitToViewport, setFitToViewport] = useState(true);
+  const [viewportFitMaxHeight, setViewportFitMaxHeight] = useState<number | null>(null);
+  const boardAreaRef = useRef<HTMLElement | null>(null);
+  // Pure view state: cosmetic mirroring of the back photo while tracing, kept
+  // entirely separate from the geometric backFlip (which maps hole clicks
+  // between sides).
+  const [backVisualFlip, setBackVisualFlip] = useState({ horizontal: false, vertical: false });
   const [alignBusy, setAlignBusy] = useState(false);
   const [alignError, setAlignError] = useState<string | null>(null);
   const [offer, setOffer] = useState<SavedSession | null>(null);
@@ -441,6 +450,22 @@ function App() {
     schematicOpen,
   ]);
 
+  useEffect(() => {
+    if (!fitToViewport) return;
+    function recompute() {
+      const el = boardAreaRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const available = window.innerHeight - top - 16;
+      setViewportFitMaxHeight(Math.max(200, available));
+    }
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+    // Banners above the board area come and go with these, so recompute
+    // whenever one might have appeared or disappeared.
+  }, [fitToViewport, offer, currentOverlap, exportError, saveError, alignError]);
+
   return (
     <div className="app">
       <header className="app-header">
@@ -524,7 +549,15 @@ function App() {
         onFindOverlaps={handleFindOverlaps}
       />
 
-      <main className="board-area">
+      <main
+        className={`board-area${fitToViewport ? ' fit-viewport' : ''}`}
+        ref={boardAreaRef}
+        style={
+          fitToViewport && viewportFitMaxHeight
+            ? ({ '--viewport-fit-max-height': `${viewportFitMaxHeight}px` } as CSSProperties)
+            : undefined
+        }
+      >
         {(['front', 'back'] as Side[]).map((side) => (
           <BoardPanel
             key={side}
@@ -533,6 +566,7 @@ function App() {
             onAddShot={handleAddShot}
             showBackground={showBackground[side]}
             layerVisibility={layerVisibility}
+            visualFlip={side === 'back' ? backVisualFlip : null}
             onCanvasClick={handleCanvasClick}
             onCanvasDoubleClick={handleCanvasDoubleClick}
             onSelectTrace={(id) => dispatch({ type: 'SELECT', selection: { kind: 'trace', id } })}
@@ -620,6 +654,12 @@ function App() {
               dispatch({ type: 'SET_DEFAULT_DIAMETER', kind, diameter })
             }
             onSetBackFlip={(flip) => dispatch({ type: 'SET_BACK_FLIP', flip })}
+            fitToViewport={fitToViewport}
+            onSetFitToViewport={setFitToViewport}
+            backVisualFlip={backVisualFlip}
+            onSetBackVisualFlip={(axis, value) =>
+              setBackVisualFlip((prev) => ({ ...prev, [axis]: value }))
+            }
           />
         </SidebarSection>
         <SidebarSection title="Traces" count={state.traces.length}>

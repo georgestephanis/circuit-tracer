@@ -239,6 +239,17 @@
   background: #111;
 }
 
+/* When a board is too tall for the viewport, shrink it to fit instead of
+   letting it run off the bottom. The header/padding above the canvas within
+   each panel isn't tracked exactly, so this is a conservative estimate. */
+.board-area.fit-viewport .board-canvas {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: calc(var(--viewport-fit-max-height, 70vh) - 70px);
+  margin: 0 auto;
+}
+
 .tool-trace .board-canvas {
   cursor: crosshair;
 }
@@ -532,6 +543,20 @@
 .field-row {
   display: flex;
   gap: 8px;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.checkbox-field input {
+  flex-shrink: 0;
 }
 
 /* The id and its dimensions are the longest part of a row, so let it wrap

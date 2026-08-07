@@ -17,6 +17,13 @@ interface Props {
   onSetDefaultTraceWidth: (width: number) => void;
   onSetDefaultDiameter: (kind: RoundKind, diameter: number) => void;
   onSetBackFlip: (flip: FlipAxis) => void;
+  /** Shrink boards that would otherwise run off the bottom of the viewport. */
+  fitToViewport: boolean;
+  onSetFitToViewport: (value: boolean) => void;
+  /** Cosmetic-only mirroring of the back photo while working — does not touch
+   * geometry or the backFlip hole mapping above. */
+  backVisualFlip: { horizontal: boolean; vertical: boolean };
+  onSetBackVisualFlip: (axis: 'horizontal' | 'vertical', value: boolean) => void;
 }
 
 export function ScalePanel({
@@ -32,6 +39,10 @@ export function ScalePanel({
   onSetDefaultTraceWidth,
   onSetDefaultDiameter,
   onSetBackFlip,
+  fitToViewport,
+  onSetFitToViewport,
+  backVisualFlip,
+  onSetBackVisualFlip,
 }: Props) {
   function setDimension(which: 'width' | 'height', value: number | undefined) {
     const current = boardSize ?? { width: 0, height: 0 };
@@ -82,6 +93,34 @@ export function ScalePanel({
           <option value="vertical">End-over-end (about the horizontal axis)</option>
         </select>
       </label>
+
+      <label className="checkbox-field">
+        <input
+          type="checkbox"
+          checked={fitToViewport}
+          onChange={(e) => onSetFitToViewport(e.target.checked)}
+        />
+        <span>Shrink tall boards to fit the window</span>
+      </label>
+
+      <div className="field-row">
+        <label className="checkbox-field">
+          <input
+            type="checkbox"
+            checked={backVisualFlip.horizontal}
+            onChange={(e) => onSetBackVisualFlip('horizontal', e.target.checked)}
+          />
+          <span>Flip back view horizontally (visual only)</span>
+        </label>
+        <label className="checkbox-field">
+          <input
+            type="checkbox"
+            checked={backVisualFlip.vertical}
+            onChange={(e) => onSetBackVisualFlip('vertical', e.target.checked)}
+          />
+          <span>Flip back view vertically (visual only)</span>
+        </label>
+      </div>
 
       <div className="field-row">
         <label className="field">
