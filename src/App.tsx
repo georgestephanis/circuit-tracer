@@ -81,6 +81,10 @@ function App() {
   // instead of running off the bottom of the page.
   const [fitToViewport, setFitToViewport] = useState(true);
   const [viewportFitMaxHeight, setViewportFitMaxHeight] = useState<number | null>(null);
+  // How far below the viewport top the board area naturally sits (i.e. right
+  // under the sticky header) — reused as its `position: sticky` offset so it
+  // stays put under the header instead of scrolling away with a long sidebar.
+  const [stickyTop, setStickyTop] = useState<number | null>(null);
   const boardAreaRef = useRef<HTMLElement | null>(null);
   // Pure view state: cosmetic mirroring of the back photo while tracing, kept
   // entirely separate from the geometric backFlip (which maps hole clicks
@@ -114,15 +118,27 @@ function App() {
   // gets its whole net highlighted and everything else on the board dimmed.
   // Hover wins over a "sticky" selection since it's the more immediate signal.
   const [hoveredItem, setHoveredItem] = useState<Selection | null>(null);
-  const followTarget = hoveredItem ?? state.selection;
+  // Set while a pad/via role field in the sidebar has focus, so the member
+  // being labeled is unmistakable on the board even among a dense cluster.
+  const [focusedMember, setFocusedMember] = useState<Selection | null>(null);
+  const followTarget = hoveredItem ?? focusedMember ?? state.selection;
   const follow = useMemo(() => {
-    if (!followTarget || followTarget.kind === 'component' || followTarget.kind === 'groundplane') return null;
+    if (!followTarget || followTarget.kind === 'groundplane') return null;
+    if (followTarget.kind === 'component') {
+      const component = state.components.find((c) => c.id === followTarget.id);
+      if (!component) return null;
+      return {
+        traces: new Set<string>(),
+        pads: new Set(component.padIds),
+        vias: new Set(component.viaIds),
+      };
+    }
     const net = netMembers(state, followTarget.kind, followTarget.id);
     return { traces: net.traceIds, pads: net.padIds, vias: net.viaIds };
     // netMembers only reads state.traces/pads/vias (via their connectsX
     // fields), so those are the real dependencies, not the whole state object.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [followTarget, state.traces, state.pads, state.vias]);
+  }, [followTarget, state.traces, state.pads, state.vias, state.components]);
 
   // A selection made from a sidebar list gets a brief pulse on the board, so
   // its on-board location is unmistakable even when it's off in a far corner.
@@ -470,13 +486,16 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!fitToViewport) return;
     function recompute() {
       const el = boardAreaRef.current;
       if (!el) return;
+      // getBoundingClientRect() reflects the sticky offset once one's
+      // applied, so this stays stable rather than feeding back on itself.
       const top = el.getBoundingClientRect().top;
-      const available = window.innerHeight - top - 16;
-      setViewportFitMaxHeight(Math.max(200, available));
+      setStickyTop(Math.max(0, top));
+      if (fitToViewport) {
+        setViewportFitMaxHeight(Math.max(200, window.innerHeight - top - 16));
+      }
     }
     recompute();
     window.addEventListener('resize', recompute);
@@ -586,9 +605,12 @@ function App() {
         className={`board-area${fitToViewport ? ' fit-viewport' : ''}`}
         ref={boardAreaRef}
         style={
-          fitToViewport && viewportFitMaxHeight
-            ? ({ '--viewport-fit-max-height': `${viewportFitMaxHeight}px` } as CSSProperties)
-            : undefined
+          {
+            ...(fitToViewport && viewportFitMaxHeight
+              ? { '--viewport-fit-max-height': `${viewportFitMaxHeight}px` }
+              : {}),
+            ...(stickyTop !== null ? { '--board-area-sticky-top': `${stickyTop}px` } : {}),
+          } as CSSProperties
         }
       >
         {(['front', 'back'] as Side[]).map((side) => (
@@ -764,6 +786,8 @@ function App() {
             onSetRole={(id, memberId, role) =>
               dispatch({ type: 'SET_COMPONENT_ROLE', id, memberId, role })
             }
+            onFocusMember={(kind, id) => setFocusedMember({ kind, id })}
+            onBlurMember={() => setFocusedMember(null)}
           />
         </SidebarSection>
         {(['via', 'hole'] as const).map((kind) => (

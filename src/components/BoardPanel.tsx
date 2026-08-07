@@ -120,6 +120,7 @@ export function BoardPanel({
   visualFlip,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<Point | null>(null);
   /**
    * The window onto the photo, in image pixels — this is the SVG's viewBox.
@@ -171,6 +172,29 @@ export function BoardPanel({
   // the old one is meaningless.
   useEffect(() => setView(null), [image?.src]);
 
+  // Once zoomed, the wrap div becomes a fixed box (see .is-zoomed in
+  // App.css) sized by the layout, not by the image's aspect ratio — track
+  // its actual pixel box so the next zoom step can crop to *that* shape
+  // instead of the photo's, letting the frame use all the width it's given
+  // rather than wasting horizontal space to preserve the photo's aspect
+  // ratio. Read via a ref in the wheel handler so it's always current
+  // without re-subscribing the (non-passive) wheel listener on every resize.
+  const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
+  const frameSizeRef = useRef(frameSize);
+  frameSizeRef.current = frameSize;
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (rect && rect.width > 0 && rect.height > 0) {
+        setFrameSize({ width: rect.width, height: rect.height });
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // The wheel zooms about the cursor — except in package mode, where it steps
   // through the footprint catalog and Ctrl/Cmd+wheel zooms instead. React's
   // onWheel is passive, so preventDefault() there wouldn't stop the page
@@ -197,7 +221,13 @@ export function BoardPanel({
         // Never zoom out past the whole photo, and stop before the window gets
         // so small that rounding to integer pixels starts to bite.
         const width = clamp(from.width * factor, image.width * MIN_VIEW_FRACTION, image.width);
-        const height = width * (image.height / image.width);
+        // Match the on-screen frame's aspect ratio once it's known, so the
+        // crop fills the available box instead of always being shaped like
+        // the whole photo. Falls back to the photo's own aspect before the
+        // frame has been measured.
+        const frame = frameSizeRef.current;
+        const aspect = frame && frame.width > 0 ? frame.height / frame.width : image.height / image.width;
+        const height = clamp(width * aspect, image.height * MIN_VIEW_FRACTION, image.height);
 
         // Keep whatever is under the cursor under the cursor.
         const kx = (at.x - from.x) / from.width;
@@ -430,7 +460,7 @@ export function BoardPanel({
         <ImageUploader side={side} onLoad={onAddShot} />
       ) : (
         <>
-          <div className="board-canvas-wrap">
+          <div ref={wrapRef} className={`board-canvas-wrap${view ? ' is-zoomed' : ''}`}>
             <svg
               ref={svgRef}
               viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}

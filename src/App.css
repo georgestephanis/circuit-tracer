@@ -212,6 +212,12 @@
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   align-items: start;
+  /* The sidebar can run much longer than the board, which makes the page
+     scroll — keep the board pinned under the header instead of letting it
+     scroll away while there's still sidebar content in view. */
+  position: sticky;
+  top: var(--board-area-sticky-top, 0px);
+  align-self: start;
 }
 
 .board-panel {
@@ -276,6 +282,23 @@
   height: auto;
   max-height: calc(var(--viewport-fit-max-height, 70vh) - 70px);
   margin: 0 auto;
+}
+
+/* Once zoomed in, the crop no longer shares the photo's aspect ratio (see
+   BoardPanel's frame-tracking zoom) — let the wrap become a fixed box that
+   fills the column instead of one shaped by the image, so the canvas isn't
+   left narrower than it has room to be. */
+.board-area.fit-viewport .board-canvas-wrap.is-zoomed {
+  width: 100%;
+  height: calc(var(--viewport-fit-max-height, 70vh) - 70px);
+}
+
+.board-area.fit-viewport .board-canvas-wrap.is-zoomed .board-canvas {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
 }
 
 .tool-trace .board-canvas {

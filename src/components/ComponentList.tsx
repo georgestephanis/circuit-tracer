@@ -26,6 +26,10 @@ interface Props {
   onSetType: (id: string, componentType: ComponentType) => void;
   onSetValue: (id: string, value: string) => void;
   onSetRole: (id: string, memberId: string, role: string) => void;
+  /** Called when a member's role field gets/loses focus, so the board can
+   *  highlight the pad/via being labeled. */
+  onFocusMember?: (kind: 'pad' | 'via', id: string) => void;
+  onBlurMember?: () => void;
 }
 
 export function ComponentList({
@@ -44,6 +48,8 @@ export function ComponentList({
   onSetType,
   onSetValue,
   onSetRole,
+  onFocusMember,
+  onBlurMember,
 }: Props) {
   const [label, setLabel] = useState('');
   const [refDes, setRefDes] = useState('');
@@ -204,6 +210,7 @@ export function ComponentList({
                   const pad = pads.find((p) => p.id === mid);
                   const via = vias.find((v) => v.id === mid);
                   const memberLabel = pad?.label || via?.label || mid;
+                  const memberKind: 'pad' | 'via' = pad ? 'pad' : 'via';
                   return (
                     <label key={mid} className="field">
                       {memberLabel}
@@ -212,6 +219,8 @@ export function ComponentList({
                         placeholder="role, e.g. Anode"
                         value={c.roles[mid] ?? ''}
                         onChange={(e) => onSetRole(c.id, mid, e.target.value)}
+                        onFocus={() => onFocusMember?.(memberKind, mid)}
+                        onBlur={() => onBlurMember?.()}
                       />
                     </label>
                   );
