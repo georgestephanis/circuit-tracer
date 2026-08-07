@@ -169,12 +169,19 @@ to a pad is a connection change — don't carry the old lists over.
 
 ### A Component is a grouping relationship, not a new kind of pad
 
-`Component` clusters 2+ existing `Pad`s (e.g. the two legs of a resistor) under
-a shared label/refDes/notes. It's another bidirectional link — `component.padIds`
-and `pad.component` must be kept in sync the same way `connectsTrace`/
-`connectsVia` are (see above). `DELETE_SELECTED` on a pad has to strip it from
-its component's `padIds` too, and if that drops the component below 2 pads,
-delete the component itself — a 1-pad "group" isn't a grouping.
+`Component` clusters 2+ existing `Pad`s and/or `Via`s (e.g. the two legs of a
+resistor, or a through-hole part's leads) under a shared label/refDes/notes,
+plus `componentType`, `value` (for valued types), and a per-member `roles` map
+keyed by pad/via id. It's another bidirectional link — `component.padIds`/
+`component.viaIds` and `pad.component`/`via.component` must be kept in sync
+the same way `connectsTrace`/`connectsVia` are (see above). `DELETE_SELECTED`
+on a member has to strip it from its component's `padIds`/`viaIds` too, and if
+that drops the component below 2 members, delete the component itself — a
+1-member "group" isn't a grouping.
+
+`componentType`/`value`/`roles` were added to `Component` after `viaIds` and
+`padIds` already existed — see the persistence Gotcha below for why that
+mattered.
 
 `padPick` (pads shift-clicked on canvas, not yet grouped) is the same kind of
 armed, canvas-consumed state as `draftPad`/`padArray` — see the last Gotcha
@@ -207,6 +214,19 @@ individually. Say so plainly if you touch this path; don't silently drop it.
 
 Never guess in `migrate()`. Losing a session beats silently inventing data, and
 either way the README's autosave section should say which happened.
+
+**A schema change doesn't have to touch `SavedSession` itself to be one.**
+`Component` gained `viaIds`, `componentType`, `value`, and `roles` in a later
+commit that never touched `persistence.ts` at all — `Component` is part of
+`SavedSession`'s shape by reference, so that was a schema change, just an
+invisible one. `migrate()` had no default for the new fields, so restoring a
+session saved before they existed threw on read (`c.viaIds.includes(...)` on
+`undefined`) instead of degrading gracefully. If you add a required field to
+any type reachable from `SavedSession` — `Trace`, `Via`, `Pad`, `Component`,
+`GroundPlane` — treat it exactly like a `SavedSession` field: bump
+`SCHEMA_VERSION` (or fold the default into `migrate()`'s per-item mapping) and
+say so in the README's schema-version list, even if the field feels
+"unrelated" to persistence.
 
 ## Conventions
 

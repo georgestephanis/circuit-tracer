@@ -23,7 +23,10 @@ const STORAGE_KEY = 'circuit-tracer/sessions/v1';
 // was configurable — so v2 sessions are normalized on load, not discarded.
 //
 // v4 added Components (pad groupings). A session written before they existed
-// simply has none, so it reads back with an empty `components` list.
+// simply has none, so it reads back with an empty `components` list. Later,
+// `viaIds` was added to Component without a schema bump, so v4 components
+// need it backfilled too — `migrate()` does that for every non-current
+// version, not just a dedicated version number.
 //
 // v5 split each side's alignment into named shots (e.g. "Populated"/"Bare"),
 // keyed by id, with one marked active. A pre-v5 session's single alignment is
@@ -160,7 +163,16 @@ function migrate(s: SavedSession): SavedSession {
     pads: s.pads.map((p) => ({ ...p, shape: p.shape ?? 'rect' })),
     defaultTestPointDiameter: s.defaultTestPointDiameter ?? 0.75,
     backFlip: s.backFlip ?? 'horizontal',
-    components: s.components ?? [],
+    // `viaIds`, `componentType`, `value`, and `roles` were all added to
+    // Component after v4 shipped, without a schema bump — a v4 session's
+    // components have only `id`/`side`/`label`/`refDes`/`notes`/`padIds`.
+    components: (s.components ?? []).map((c) => ({
+      ...c,
+      viaIds: c.viaIds ?? [],
+      componentType: c.componentType ?? 'other',
+      value: c.value ?? '',
+      roles: c.roles ?? {},
+    })),
     nextComponentNum: s.nextComponentNum ?? 1,
     groundPlanes: s.groundPlanes ?? [],
     nextGroundPlaneNum: s.nextGroundPlaneNum ?? 1,

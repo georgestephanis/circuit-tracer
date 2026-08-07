@@ -179,10 +179,10 @@ affects the undo history, autosave, or SVG export:
 | Key | Does |
 | --- | --- |
 | `0` | Pointer (select) |
-| `1`–`6` | Trace, Via, Hole, Pad, Test point, SMD package |
+| `1`–`7` | Trace, Via, Hole, Pad, Test point, SMD package, Ground plane |
 | `G` | Toggle ground on the selected via, hole, or pad |
-| `Enter` | Finish the current trace |
-| `Esc` | Cancel the in-progress trace, pad, pad series, or component pad-pick |
+| `Enter` | Finish the current trace or ground-plane pour |
+| `Esc` | Cancel the in-progress trace, ground plane, pad, pad series, or component pad-pick |
 | `Delete` / `Backspace` | Delete the selection |
 | `Ctrl`/`Cmd` `+Z` | Undo |
 | `Shift`+`Ctrl`/`Cmd` `+Z`, or `Ctrl`/`Cmd` `+Y` | Redo |
@@ -263,23 +263,31 @@ a click on the opposite panel is ignored rather than placing pads you can't see.
 
 ## Components
 
-A **Component** groups 2+ pads that belong to the same part (e.g. both legs
-of a resistor) under one silkscreen label, reference designator, and free-
-text notes — it's how the netlist export (below) knows what a pin belongs to.
+A **Component** groups 2+ pads and/or vias/holes that belong to the same part
+(e.g. both legs of a resistor, or a through-hole part's leads) under one
+silkscreen label, reference designator, type, value, and free-text notes —
+it's how the netlist export (below) knows what a pin belongs to.
 
-1. **Shift-click** pads on the canvas to pick them — this works with any tool
-   active, and picking is separate from normal single-item selection. A
-   picked pad gets a dashed blue outline; shift-clicking it again un-picks
-   it. Pads already in a component, or on the other side of the board, can't
-   be picked into the same group.
+1. **Shift-click** pads, vias, or holes on the canvas to pick them — this
+   works with any tool active, and picking is separate from normal
+   single-item selection. A picked item gets a dashed blue outline;
+   shift-clicking it again un-picks it. Items already in a component, or on
+   the other side of the board, can't be picked into the same group, and a
+   group can't mix pads/vias from both sides.
 2. In the **Components** sidebar section, fill in a label/ref. designator/
-   notes (all optional) and click **Group** once 2+ pads are picked, or
+   type/notes (all optional) and click **Group** once 2+ items are picked, or
    **Clear** to abandon the pick without grouping.
-3. A grouped component draws as a dashed outline around its member pads with
-   its label above it, on the canvas and in the exported SVG. Click the
-   outline to select it; **Delete**/**Backspace** removes it (its pads are
-   freed, not deleted). Deleting a pad that would leave a component with
-   fewer than 2 pads deletes the component too.
+3. Pick a **Type** (resistor, capacitor, diode, LED, …, or the `other`
+   catch-all) — valued types (resistor, capacitor, inductor) get an extra
+   **Value** field (e.g. `10kΩ`) alongside notes.
+4. For a polarized or multi-lead part, each member gets its own **role**
+   field once the component exists (e.g. `Anode`/`Cathode` for a diode) —
+   fill these in from the component's sidebar row after grouping.
+5. A grouped component draws as a dashed outline around its member pads and
+   vias/holes with its label above it, on the canvas and in the exported SVG.
+   Click the outline to select it; **Delete**/**Backspace** removes it (its
+   members are freed, not deleted). Removing a member that would leave a
+   component with fewer than 2 deletes the component too.
 
 ### Netlist export
 
@@ -351,7 +359,27 @@ pairwise connections being recorded between them, which is what makes a ground
 plane tractable to mark up. In the export each carries `data-ground="true"` and
 `data-net="GND"`.
 
-A dedicated ground-plane feature is planned; this flag is the groundwork for it.
+## Ground planes
+
+For a solid copper pour rather than individual grounded items, use the
+**Ground plane** tool (`7`):
+
+1. Click points on the canvas to trace the pour's outline, same as drawing a
+   **Trace**.
+2. Click **Finish** (or press `Enter`) to close it into a polygon; `Undo
+   point`/`Esc` work the same way they do for a trace-in-progress.
+
+A ground plane is rendered as a filled polygon **with a cutout punched for
+every trace, pad, and via on its side that isn't itself flagged `ground`** —
+computed live from the plane's points plus the board's current copper, so it
+never goes stale as you keep tracing. Anything already flagged `ground`
+merges into the pour with no cutout, same as it merges into the implicit GND
+net elsewhere.
+
+Ground planes get their own sidebar list and count, same as traces or
+components, and are drawn — and cut — before everything else in the SVG
+export, so all other copper renders on top of the pour. See [Exported SVG
+schema](#exported-svg-schema) below.
 
 ## Aligning a side
 
@@ -440,13 +468,24 @@ Other behavior worth knowing:
   - **v1 → dropped.** Splitting vias and holes made `kind` required, and a v1
     via records nothing that says which it was. Guessing seemed worse than
     starting clean.
-  - **v2 → migrated.** Round pads and the ground flag were added afterwards.
-    Every pad written before that was a rectangle and nothing was grounded, so
-    filling those in isn't a guess.
-  - **v4 → migrated.** Each side's single saved alignment becomes that side's
+  - **v2 → v3 migrated.** Round pads, the ground flag, and the back-flip axis
+    were added afterwards. Every pad written before that was a rectangle,
+    nothing was grounded, and the flip was whichever axis was hardcoded before
+    it was configurable — none of that is a guess.
+  - **v4 migrated.** Components (pad/via groupings) didn't exist yet, so a
+    pre-v4 session simply has none. Two fields — `viaIds` on through-hole
+    groupings, and `componentType`/`value`/`roles` for typed parts — were
+    later added to `Component` itself *without* a schema bump, so a v4
+    session's components need those four backfilled too; `migrate()` does
+    that for every non-current version, not just a dedicated one.
+  - **v5 migrated.** Each side's single saved alignment becomes that side's
     one (and active) named **shot** — see [Multiple shots per
     side](#multiple-shots-per-side) below. A pre-v5 session only ever had one
     photo per side, so this wrap is unambiguous, not a guess.
+  - **v6 migrated.** Board-wide notes and ground planes (see [Ground
+    planes](#ground-planes) below) are both wholly new, empty-by-default
+    collections, so a pre-v6 session migrates unambiguously to no notes and no
+    ground planes.
 
 Restoring only re-derives each side's **active** shot — that's the only photo
 the session key is matched against. If a side had more than one shot saved,
@@ -472,6 +511,8 @@ The export is a single `<svg>` containing two side-by-side groups:
 
   <g data-side="front" data-px-per-unit="10" transform="translate(0, 0)">
     <image href="data:image/...;base64,..." x="0" y="0" width="…" height="…" />
+    <path id="groundplane-1" class="ground-plane" data-side="front" data-label="GND pour"
+          data-ground="true" data-net="GND" d="M … Z" fill="#6b7280" fill-rule="nonzero" />
     <rect id="pad-front-1" class="pad pad--rect" data-side="front" data-shape="rect"
           data-connects="trace-front-1 via-1"
           data-width="5" data-height="4" x="270" y="80" width="50" height="40" fill="…" />
@@ -528,6 +569,11 @@ Notes for parsers:
   front and back coordinates are directly comparable.
 ### Elements
 
+- Ground planes are `<path class="ground-plane">` elements, filled with the
+  cutouts already subtracted (see [Ground planes](#ground-planes)) — no
+  separate cutout geometry is exported. They always carry `data-ground="true"`
+  and `data-net="GND"`, and are emitted first in each side's group, beneath
+  every other element, since that's how the pour sits on the live canvas.
 - Traces are `<path class="trace">` elements. `data-label` is present only if
   the user gave the trace a label. `data-connects` is a space-separated list of
   pad and via IDs this trace connects to, present only if at least one is
