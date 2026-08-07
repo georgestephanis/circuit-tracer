@@ -164,7 +164,7 @@ export function circleIntersectsRect(c: Point, r: number, rect: Rect): boolean {
   return distance(c, { x: closestX, y: closestY }) <= r;
 }
 
-function padCenter(pad: Rect): Point {
+export function padCenter(pad: Rect): Point {
   return { x: pad.x + pad.width / 2, y: pad.y + pad.height / 2 };
 }
 
@@ -320,4 +320,59 @@ export function snapVia<T extends { front?: Point; back?: Point; diameter: numbe
     }
   }
   return best;
+}
+
+/** Twice the polygon's signed area (shoelace formula) — sign gives winding. */
+export function signedArea(points: Point[]): number {
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return sum / 2;
+}
+
+/** Winding order in screen space (y-down), where a negative signed area is clockwise. */
+export function isClockwise(points: Point[]): boolean {
+  return signedArea(points) < 0;
+}
+
+/** Ray-casting point-in-polygon test, for hit-testing a ground plane's filled interior. */
+export function pointInPolygon(point: Point, polygon: Point[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i];
+    const b = polygon[j];
+    const intersects =
+      a.y > point.y !== b.y > point.y &&
+      point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+/** A closed polygon approximating a circle — for round pads, vias/holes, and trace joints/caps. */
+export function circlePoints(center: Point, radius: number, segments = 16): Point[] {
+  const points: Point[] = [];
+  for (let i = 0; i < segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    points.push({ x: center.x + radius * Math.cos(angle), y: center.y + radius * Math.sin(angle) });
+  }
+  return points;
+}
+
+/** A 4-corner rectangle ring following segment `a`→`b`, offset `width / 2` on each side. */
+export function rectAlongSegment(a: Point, b: Point, width: number): Point[] {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = (-dy / len) * (width / 2);
+  const ny = (dx / len) * (width / 2);
+  return [
+    { x: a.x + nx, y: a.y + ny },
+    { x: b.x + nx, y: b.y + ny },
+    { x: b.x - nx, y: b.y - ny },
+    { x: a.x - nx, y: a.y - ny },
+  ];
 }

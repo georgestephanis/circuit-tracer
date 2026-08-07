@@ -2,6 +2,7 @@ import type {
   BoardState,
   Component,
   FlipAxis,
+  GroundPlane,
   LengthUnit,
   Pad,
   PhysicalSize,
@@ -74,6 +75,9 @@ export interface SavedSession {
   nextViaNum: number;
   nextPadNum: number;
   nextComponentNum: number;
+  /** Absent in pre-v6 sessions — `boardReducer`'s `RESTORE_SESSION` defaults both to empty. */
+  groundPlanes?: GroundPlane[];
+  nextGroundPlaneNum?: number;
   alignedSize: { width: number; height: number } | null;
   unit: LengthUnit;
   boardSize: PhysicalSize | null;

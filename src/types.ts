@@ -120,6 +120,21 @@ export interface Pad {
 
 export type PadShape = 'rect' | 'round';
 
+/**
+ * A manually-traced ground-plane pour. Rendered as a filled polygon with a
+ * cutout for every trace/pad/via on its side that isn't itself flagged
+ * `ground` (see `Via.ground`/`Pad.ground`) — computed live from `points` plus
+ * the current traces/pads/vias, never stored, so it can't go stale when
+ * copper is added or moved.
+ */
+export interface GroundPlane {
+  id: string;
+  side: Side;
+  /** Polygon vertices, implicitly closed — like a `Trace`, but with an area. */
+  points: Point[];
+  label: string;
+}
+
 /** Common component kinds, plus a catch-all for anything else. */
 export type ComponentType =
   | 'resistor'
@@ -209,13 +224,21 @@ export type FlipAxis = 'horizontal' | 'vertical';
  * trace/pad/via/component (to inspect, move a pad, or shift-click pads into
  * a component). Every other tool places something on click.
  */
-export type Tool = 'pointer' | 'trace' | 'via' | 'hole' | 'pad' | 'testpoint' | 'package';
+export type Tool =
+  | 'pointer'
+  | 'trace'
+  | 'via'
+  | 'hole'
+  | 'pad'
+  | 'testpoint'
+  | 'package'
+  | 'groundplane';
 
 /** Anything sized by a diameter rather than a width — see `SET_DEFAULT_DIAMETER`. */
 export type RoundKind = HoleKind | 'testpoint';
 
 export interface Selection {
-  kind: 'trace' | 'via' | 'pad' | 'component';
+  kind: 'trace' | 'via' | 'pad' | 'component' | 'groundplane';
   id: string;
 }
 
@@ -230,8 +253,10 @@ export interface BoardState {
   vias: Via[];
   pads: Pad[];
   components: Component[];
+  groundPlanes: GroundPlane[];
   tool: Tool;
   draftTrace: { side: Side; points: Point[] } | null;
+  draftGroundPlane: { side: Side; points: Point[] } | null;
   /** First corner of a pad being placed; the next click sets the opposite corner. */
   draftPad: { side: Side; start: Point } | null;
   /**
@@ -256,6 +281,7 @@ export interface BoardState {
   nextViaNum: number;
   nextPadNum: number;
   nextComponentNum: number;
+  nextGroundPlaneNum: number;
   /** Shared corrected-image size, established by whichever side is aligned first. */
   alignedSize: { width: number; height: number } | null;
   /** Unit all physical measurements in this state are expressed in. */

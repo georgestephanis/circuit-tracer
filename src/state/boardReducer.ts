@@ -9,6 +9,7 @@ import type {
   Point,
   RawImage,
   FlipAxis,
+  GroundPlane,
   RoundKind,
   Shot,
   SidePhotos,
@@ -49,6 +50,9 @@ export type Action =
   | { type: 'SET_TOOL'; tool: Tool }
   | { type: 'ADD_TRACE_POINT'; side: Side; point: Point }
   | { type: 'FINISH_TRACE' }
+  | { type: 'ADD_GROUND_PLANE_POINT'; side: Side; point: Point }
+  | { type: 'FINISH_GROUND_PLANE' }
+  | { type: 'RENAME_GROUND_PLANE'; id: string; label: string }
   | { type: 'CANCEL_DRAFT' }
   | { type: 'UNDO_DRAFT_POINT' }
   | { type: 'ADD_VIA'; side: Side; point: Point; kind: HoleKind }
@@ -112,8 +116,10 @@ export const initialState: BoardState = {
   vias: [],
   pads: [],
   components: [],
+  groundPlanes: [],
   tool: 'pointer',
   draftTrace: null,
+  draftGroundPlane: null,
   draftPad: null,
   padArray: null,
   padPick: [],
@@ -123,6 +129,7 @@ export const initialState: BoardState = {
   nextViaNum: 1,
   nextPadNum: 1,
   nextComponentNum: 1,
+  nextGroundPlaneNum: 1,
   alignedSize: null,
   unit: 'mm',
   boardSize: null,
@@ -166,6 +173,7 @@ function pruneSelection(state: BoardState, next: Partial<BoardState>): BoardStat
   const vias = next.vias ?? state.vias;
   const pads = next.pads ?? state.pads;
   const components = next.components ?? state.components;
+  const groundPlanes = next.groundPlanes ?? state.groundPlanes;
   const alive =
     sel.kind === 'trace'
       ? traces.some((t) => t.id === sel.id)
@@ -173,7 +181,9 @@ function pruneSelection(state: BoardState, next: Partial<BoardState>): BoardStat
         ? vias.some((v) => v.id === sel.id)
         : sel.kind === 'pad'
           ? pads.some((p) => p.id === sel.id)
-          : components.some((c) => c.id === sel.id);
+          : sel.kind === 'groundplane'
+            ? groundPlanes.some((g) => g.id === sel.id)
+            : components.some((c) => c.id === sel.id);
   return alive ? sel : null;
 }
 
@@ -339,6 +349,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         ...state,
         tool: action.tool,
         draftTrace: null,
+        draftGroundPlane: null,
         draftPad: null,
         padArray: null,
         padPick: [],
@@ -359,17 +370,62 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       };
     }
 
+    case 'ADD_GROUND_PLANE_POINT': {
+      const draft = state.draftGroundPlane;
+      if (!draft || draft.side !== action.side) {
+        return {
+          ...state,
+          draftGroundPlane: { side: action.side, points: [action.point] },
+        };
+      }
+      return {
+        ...state,
+        draftGroundPlane: { ...draft, points: [...draft.points, action.point] },
+      };
+    }
+
+    case 'FINISH_GROUND_PLANE': {
+      const draft = state.draftGroundPlane;
+      if (!draft || draft.points.length < 3) return { ...state, draftGroundPlane: null };
+      const id = `groundplane-${draft.side}-${state.nextGroundPlaneNum}`;
+      const plane: GroundPlane = {
+        id,
+        side: draft.side,
+        points: draft.points,
+        label: `GP${state.nextGroundPlaneNum}`,
+      };
+      return {
+        ...state,
+        groundPlanes: [...state.groundPlanes, plane],
+        draftGroundPlane: null,
+        nextGroundPlaneNum: state.nextGroundPlaneNum + 1,
+        selection: { kind: 'groundplane', id },
+      };
+    }
+
+    case 'RENAME_GROUND_PLANE':
+      return {
+        ...state,
+        groundPlanes: state.groundPlanes.map((g) =>
+          g.id === action.id ? { ...g, label: action.label } : g,
+        ),
+      };
+
     case 'UNDO_DRAFT_POINT': {
-      const draft = state.draftTrace;
+      const draft = state.draftTrace ?? state.draftGroundPlane;
       if (!draft) return state;
       const points = draft.points.slice(0, -1);
-      return { ...state, draftTrace: points.length ? { ...draft, points } : null };
+      if (state.draftTrace) {
+        return { ...state, draftTrace: points.length ? { ...draft, points } : null };
+      }
+      return { ...state, draftGroundPlane: points.length ? { ...draft, points } : null };
     }
 
     case 'CANCEL_DRAFT':
       return {
         ...state,
         draftTrace: null,
+        draftGroundPlane: null,
         draftPad: null,
         padArray: null,
         padPick: [],
@@ -979,6 +1035,8 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         vias: session.vias,
         pads: session.pads,
         components: session.components,
+        groundPlanes: session.groundPlanes ?? [],
+        nextGroundPlaneNum: session.nextGroundPlaneNum ?? 1,
         nextTraceNum: session.nextTraceNum,
         nextViaNum: session.nextViaNum,
         nextPadNum: session.nextPadNum,
@@ -1069,6 +1127,14 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
           })),
           components: releasedComponents,
           viaPick: state.viaPick.filter((v) => v !== id),
+          selection: null,
+        };
+      }
+
+      if (kind === 'groundplane') {
+        return {
+          ...state,
+          groundPlanes: state.groundPlanes.filter((g) => g.id !== id),
           selection: null,
         };
       }

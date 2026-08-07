@@ -113,7 +113,7 @@ function App() {
   const [hoveredItem, setHoveredItem] = useState<Selection | null>(null);
   const followTarget = hoveredItem ?? state.selection;
   const follow = useMemo(() => {
-    if (!followTarget || followTarget.kind === 'component') return null;
+    if (!followTarget || followTarget.kind === 'component' || followTarget.kind === 'groundplane') return null;
     const net = netMembers(state, followTarget.kind, followTarget.id);
     return { traces: net.traceIds, pads: net.padIds, vias: net.viaIds };
     // netMembers only reads state.traces/pads/vias (via their connectsX
@@ -180,6 +180,8 @@ function App() {
       dispatch({ type: 'ADD_TEST_POINT', side, point });
     } else if (state.tool === 'package') {
       dispatch({ type: 'ADD_PACKAGE', side, point });
+    } else if (state.tool === 'groundplane') {
+      dispatch({ type: 'ADD_GROUND_PLANE_POINT', side, point });
     } else if (state.tool === 'pointer') {
       // Pointer places nothing. Clicking a pad/trace/via/component reaches
       // its own handler (which stopPropagation()s before this fires), so
@@ -193,6 +195,9 @@ function App() {
   function handleCanvasDoubleClick(side: Side) {
     if (state.draftTrace && state.draftTrace.side === side) {
       dispatch({ type: 'FINISH_TRACE' });
+    }
+    if (state.draftGroundPlane && state.draftGroundPlane.side === side) {
+      dispatch({ type: 'FINISH_GROUND_PLANE' });
     }
   }
 
