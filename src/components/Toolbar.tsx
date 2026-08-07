@@ -8,6 +8,7 @@ const MIN_SERIES = 2;
 interface Props {
   tool: Tool;
   hasDraft: boolean;
+  hasGroundPlaneDraft: boolean;
   hasPadDraft: boolean;
   hasSelection: boolean;
   /** The selected pad, if the current selection is one — the series source. */
@@ -20,6 +21,7 @@ interface Props {
   onRotatePackage: () => void;
   onSetTool: (tool: Tool) => void;
   onFinishTrace: () => void;
+  onFinishGroundPlane: () => void;
   onUndoPoint: () => void;
   onCancelDraft: () => void;
   onDeleteSelected: () => void;
@@ -37,6 +39,7 @@ interface Props {
 export function Toolbar({
   tool,
   hasDraft,
+  hasGroundPlaneDraft,
   hasPadDraft,
   hasSelection,
   selectedPadId,
@@ -47,6 +50,7 @@ export function Toolbar({
   onRotatePackage,
   onSetTool,
   onFinishTrace,
+  onFinishGroundPlane,
   onUndoPoint,
   onCancelDraft,
   onDeleteSelected,
@@ -110,6 +114,13 @@ export function Toolbar({
         >
           SMD package
         </button>
+        <button
+          type="button"
+          className={tool === 'groundplane' ? 'active' : ''}
+          onClick={() => onSetTool('groundplane')}
+        >
+          Ground plane
+        </button>
       </div>
 
       {tool === 'pointer' && (
@@ -130,6 +141,20 @@ export function Toolbar({
             Undo point
           </button>
           <button type="button" onClick={onCancelDraft} disabled={!hasDraft}>
+            Cancel (Esc)
+          </button>
+        </div>
+      )}
+
+      {tool === 'groundplane' && (
+        <div className="toolbar-group">
+          <button type="button" onClick={onFinishGroundPlane} disabled={!hasGroundPlaneDraft}>
+            Finish ground plane (Enter)
+          </button>
+          <button type="button" onClick={onUndoPoint} disabled={!hasGroundPlaneDraft}>
+            Undo point
+          </button>
+          <button type="button" onClick={onCancelDraft} disabled={!hasGroundPlaneDraft}>
             Cancel (Esc)
           </button>
         </div>

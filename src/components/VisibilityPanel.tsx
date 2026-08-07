@@ -7,6 +7,7 @@ export interface LayerVisibility {
   traces: boolean;
   vias: boolean;
   components: boolean;
+  groundPlanes: boolean;
 }
 
 interface Props {
@@ -27,6 +28,7 @@ const LAYERS: { key: keyof LayerVisibility; label: string }[] = [
   { key: 'traces', label: 'Traces' },
   { key: 'vias', label: 'Vias' },
   { key: 'components', label: 'Components' },
+  { key: 'groundPlanes', label: 'Ground planes' },
 ];
 
 /**

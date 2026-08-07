@@ -43,6 +43,7 @@ const TOOL_KEYS: Record<string, Tool | undefined> = {
   '4': 'pad',
   '5': 'testpoint',
   '6': 'package',
+  '7': 'groundplane',
 };
 
 /** The shot currently displayed/edited/exported for a side, if any. */
@@ -71,6 +72,7 @@ function App() {
     traces: true,
     vias: true,
     components: true,
+    groundPlanes: true,
   });
   const [excludeImages, setExcludeImages] = useState(false);
   const [schematicOpen, setSchematicOpen] = useState(false);
@@ -155,6 +157,7 @@ function App() {
   const testPoints = state.pads.filter((p) => p.shape === 'round');
 
   const hasDraft = Boolean(state.draftTrace);
+  const hasGroundPlaneDraft = Boolean(state.draftGroundPlane);
   const hasSelection = Boolean(state.selection);
   const canExport = Boolean(state.images.front && state.images.back);
 
@@ -431,9 +434,11 @@ function App() {
 
       if (e.key === 'Enter') {
         if (state.draftTrace) dispatch({ type: 'FINISH_TRACE' });
+        if (state.draftGroundPlane) dispatch({ type: 'FINISH_GROUND_PLANE' });
       } else if (e.key === 'Escape') {
         if (
           state.draftTrace ||
+          state.draftGroundPlane ||
           state.draftPad ||
           state.padArray ||
           state.padPick.length > 0 ||
@@ -452,6 +457,7 @@ function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
     state.draftTrace,
+    state.draftGroundPlane,
     state.draftPad,
     state.padArray,
     state.padPick,
@@ -548,6 +554,7 @@ function App() {
       <Toolbar
         tool={state.tool}
         hasDraft={hasDraft}
+        hasGroundPlaneDraft={hasGroundPlaneDraft}
         hasPadDraft={Boolean(state.draftPad)}
         hasSelection={hasSelection}
         selectedPadId={state.selection?.kind === 'pad' ? state.selection.id : null}
@@ -560,6 +567,7 @@ function App() {
         onRotatePackage={() => dispatch({ type: 'ROTATE_PACKAGE' })}
         onSetTool={(tool) => dispatch({ type: 'SET_TOOL', tool })}
         onFinishTrace={() => dispatch({ type: 'FINISH_TRACE' })}
+        onFinishGroundPlane={() => dispatch({ type: 'FINISH_GROUND_PLANE' })}
         onUndoPoint={() => dispatch({ type: 'UNDO_DRAFT_POINT' })}
         onCancelDraft={() => dispatch({ type: 'CANCEL_DRAFT' })}
         onDeleteSelected={() => dispatch({ type: 'DELETE_SELECTED' })}
@@ -596,6 +604,9 @@ function App() {
             onSelectTrace={(id) => dispatch({ type: 'SELECT', selection: { kind: 'trace', id } })}
             onSelectVia={(id) => dispatch({ type: 'SELECT', selection: { kind: 'via', id } })}
             onSelectPad={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
+            onSelectGroundPlane={(id) =>
+              dispatch({ type: 'SELECT', selection: { kind: 'groundplane', id } })
+            }
             onMovePad={(id, dx, dy) => dispatch({ type: 'MOVE_PAD', id, dx, dy })}
             padPick={state.padPick}
             onTogglePadPick={(id) => dispatch({ type: 'TOGGLE_PAD_PICK', id })}

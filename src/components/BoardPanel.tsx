@@ -18,6 +18,7 @@ import {
   snapVia,
   throughBoard,
 } from '../lib/geometry';
+import { buildGroundPlanePath } from '../lib/groundPlane';
 import { UNIT_LABELS, formatLength, pxPerUnit } from '../lib/scale';
 import { FOOTPRINTS, packagePads } from '../lib/packages';
 import { ImageUploader } from './ImageUploader';
@@ -40,6 +41,7 @@ interface Props {
   onSelectTrace: (id: string) => void;
   onSelectVia: (id: string) => void;
   onSelectPad: (id: string) => void;
+  onSelectGroundPlane: (id: string) => void;
   /** Commit a finished pad drag, as a delta in this side's image pixels. */
   onMovePad: (id: string, dx: number, dy: number) => void;
   /** Pads shift-clicked on the canvas, waiting to be grouped into a Component. */
@@ -72,7 +74,13 @@ interface Props {
   /** Whether this side's background photo is drawn at all. */
   showBackground: boolean;
   /** Independent on/off per SVG layer — orthogonal to overlayOpacity's fade. */
-  layerVisibility: { pads: boolean; traces: boolean; vias: boolean; components: boolean };
+  layerVisibility: {
+    pads: boolean;
+    traces: boolean;
+    vias: boolean;
+    components: boolean;
+    groundPlanes: boolean;
+  };
   /**
    * Cosmetic-only mirroring while working (e.g. to match how the board is
    * physically oriented in front of you). Purely a CSS transform — never
@@ -90,6 +98,7 @@ export function BoardPanel({
   onSelectTrace,
   onSelectVia,
   onSelectPad,
+  onSelectGroundPlane,
   onMovePad,
   padPick,
   onTogglePadPick,
@@ -268,6 +277,7 @@ export function BoardPanel({
   /** Tools that place something round at a fixed default size. */
   const placingRound = placingHole || state.tool === 'testpoint';
   const placingPackage = state.tool === 'package';
+  const placingGroundPlane = state.tool === 'groundplane';
   const arraySource = state.padArray
     ? (state.pads.find((p) => p.id === state.padArray?.sourceId) ?? null)
     : null;
@@ -298,7 +308,7 @@ export function BoardPanel({
     }
 
     const drawingPad = Boolean(state.draftPad && state.draftPad.side === side);
-    if (!drawingPad && !placingRound && !armingArray && !tracing && !placingPackage) {
+    if (!drawingPad && !placingRound && !armingArray && !tracing && !placingPackage && !placingGroundPlane) {
       if (hover) setHover(null);
       onHoverPoint(side, null);
       return;
@@ -336,6 +346,8 @@ export function BoardPanel({
     display: visible ? undefined : ('none' as const),
   });
   const draft = state.draftTrace && state.draftTrace.side === side ? state.draftTrace : null;
+  const groundDraft =
+    state.draftGroundPlane && state.draftGroundPlane.side === side ? state.draftGroundPlane : null;
   const padDraft = state.draftPad && state.draftPad.side === side ? state.draftPad : null;
   const padPreview = padDraft && hover ? rectFromCorners(padDraft.start, hover) : null;
 
@@ -448,6 +460,41 @@ export function BoardPanel({
                   className={follow ? 'dimmed' : ''}
                 />
               )}
+
+              {/*
+                Ground planes sit beneath everything else, including pads —
+                the cutouts baked into their path are what keep them from
+                shorting to non-ground copper.
+              */}
+              <g {...layerOverlay(layerVisibility.groundPlanes)}>
+                {state.groundPlanes
+                  .filter((plane) => plane.side === side)
+                  .map((plane) => {
+                    const selected =
+                      state.selection?.kind === 'groundplane' && state.selection.id === plane.id;
+                    return (
+                      <path
+                        key={plane.id}
+                        d={buildGroundPlanePath(
+                          plane,
+                          state.pads,
+                          state.vias,
+                          state.traces,
+                          scale,
+                          state.defaultTraceWidth,
+                        )}
+                        fill={GROUND_COLOR}
+                        fillRule="nonzero"
+                        className={selected ? 'ground-plane selected' : 'ground-plane'}
+                        pointerEvents={state.tool === 'pointer' ? 'auto' : 'none'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectGroundPlane(plane.id);
+                        }}
+                      />
+                    );
+                  })}
+              </g>
 
               {/*
                 Pads sit under the traces so the two read as one copper shape.
@@ -646,6 +693,42 @@ export function BoardPanel({
                   strokeLinejoin="round"
                   pointerEvents="none"
                 />
+              )}
+
+              {groundDraft && (
+                <g pointerEvents="none">
+                  <path
+                    d={pointsToPath(groundDraft.points)}
+                    stroke={GROUND_COLOR}
+                    strokeWidth={Math.max(1, image.width * 0.002) * viewScale}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  {hover && groundDraft.points.length > 0 && (
+                    <line
+                      x1={groundDraft.points[groundDraft.points.length - 1].x}
+                      y1={groundDraft.points[groundDraft.points.length - 1].y}
+                      x2={hover.x}
+                      y2={hover.y}
+                      stroke={GROUND_COLOR}
+                      strokeWidth={Math.max(1, image.width * 0.002) * viewScale}
+                      strokeDasharray="6 4"
+                    />
+                  )}
+                  {groundDraft.points.length > 1 && (
+                    <line
+                      x1={groundDraft.points[groundDraft.points.length - 1].x}
+                      y1={groundDraft.points[groundDraft.points.length - 1].y}
+                      x2={groundDraft.points[0].x}
+                      y2={groundDraft.points[0].y}
+                      stroke={GROUND_COLOR}
+                      strokeWidth={Math.max(1, image.width * 0.0015) * viewScale}
+                      strokeDasharray="2 4"
+                      opacity={0.6}
+                    />
+                  )}
+                </g>
               )}
 
               {padDraft && !padPreview && (
