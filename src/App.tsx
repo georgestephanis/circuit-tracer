@@ -6,6 +6,7 @@ import { AlignOverlay } from './components/AlignOverlay';
 import { SchematicView } from './components/SchematicView';
 import { Toolbar } from './components/Toolbar';
 import { TraceList } from './components/TraceList';
+import { GroundPlaneList } from './components/GroundPlaneList';
 import { ViaList } from './components/ViaList';
 import { PadList } from './components/PadList';
 import { ComponentList } from './components/ComponentList';
@@ -708,6 +709,14 @@ function App() {
             onSelect={(id) => selectFromSidebar({ kind: 'trace', id })}
             onRename={(id, label) => dispatch({ type: 'RENAME_TRACE', id, label })}
             onSetWidth={(id, width) => dispatch({ type: 'SET_TRACE_WIDTH', id, width })}
+          />
+        </SidebarSection>
+        <SidebarSection title="Ground planes" count={state.groundPlanes.length}>
+          <GroundPlaneList
+            groundPlanes={state.groundPlanes}
+            selection={state.selection}
+            onSelect={(id) => selectFromSidebar({ kind: 'groundplane', id })}
+            onRename={(id, label) => dispatch({ type: 'RENAME_GROUND_PLANE', id, label })}
           />
         </SidebarSection>
         <SidebarSection title="Pads" count={rectPads.length}>

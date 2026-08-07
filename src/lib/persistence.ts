@@ -29,9 +29,13 @@ const STORAGE_KEY = 'circuit-tracer/sessions/v1';
 // keyed by id, with one marked active. A pre-v5 session's single alignment is
 // unambiguously today's only shot, so `migrate()` wraps it as one rather than
 // dropping the session.
-const SCHEMA_VERSION = 5;
+//
+// v6 added board-wide notes and ground planes (with their own cutout
+// geometry). Both are wholly new, empty-by-default collections, so a pre-v6
+// session migrates unambiguously to no notes and no ground planes.
+const SCHEMA_VERSION = 6;
 /** Versions whose data can be read as-is once normalized by `migrate()`. */
-const READABLE_VERSIONS = [2, 3, 4, SCHEMA_VERSION];
+const READABLE_VERSIONS = [2, 3, 4, 5, SCHEMA_VERSION];
 /** How many boards' worth of work to keep before evicting the oldest. */
 const MAX_SESSIONS = 8;
 
@@ -158,6 +162,8 @@ function migrate(s: SavedSession): SavedSession {
     backFlip: s.backFlip ?? 'horizontal',
     components: s.components ?? [],
     nextComponentNum: s.nextComponentNum ?? 1,
+    groundPlanes: s.groundPlanes ?? [],
+    nextGroundPlaneNum: s.nextGroundPlaneNum ?? 1,
     alignment,
   };
 }
@@ -234,10 +240,12 @@ export function snapshotFromState(state: BoardState): SavedSession {
     vias: state.vias,
     pads: state.pads,
     components: state.components,
+    groundPlanes: state.groundPlanes,
     nextTraceNum: state.nextTraceNum,
     nextViaNum: state.nextViaNum,
     nextPadNum: state.nextPadNum,
     nextComponentNum: state.nextComponentNum,
+    nextGroundPlaneNum: state.nextGroundPlaneNum,
     alignedSize: state.alignedSize,
     unit: state.unit,
     boardSize: state.boardSize,

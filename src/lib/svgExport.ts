@@ -2,12 +2,14 @@ import {
   GROUND_COLOR,
   type BoardState,
   type Component,
+  type GroundPlane,
   type Pad,
   type Side,
   type Trace,
   type Via,
 } from '../types';
 import { componentBoundingRect, pointsToPath } from './geometry';
+import { buildGroundPlanePath } from './groundPlane';
 import { UNIT_LABELS, pxPerUnit } from './scale';
 import { downloadFile, safeFileName } from './download';
 
@@ -53,6 +55,18 @@ function renderVia(v: Via, side: Side, scale: number): string {
 /** `data-ground` and the GND net name, present only on grounded copper. */
 function groundAttrs(ground: boolean | undefined): string {
   return ground ? ' data-ground="true" data-net="GND"' : '';
+}
+
+function renderGroundPlane(
+  plane: GroundPlane,
+  pads: Pad[],
+  vias: Via[],
+  traces: Trace[],
+  scale: number,
+  defaultTraceWidth: number,
+): string {
+  const d = buildGroundPlanePath(plane, pads, vias, traces, scale, defaultTraceWidth);
+  return `<path id="${plane.id}" class="ground-plane" data-side="${plane.side}"${labelAttr(plane.label)}${groundAttrs(true)} d="${d}" fill="${GROUND_COLOR}" fill-rule="nonzero" />`;
 }
 
 function renderPad(pad: Pad, scale: number): string {
@@ -119,6 +133,14 @@ function renderSideGroup(
   if (!shot) return '';
   const scale = pxPerUnit(shot, state.boardSize, state.unit);
 
+  // Ground planes are emitted before everything else so the pour sits
+  // beneath all copper, same as the live canvas.
+  const groundPlanes = state.groundPlanes
+    .filter((plane) => plane.side === side)
+    .map((plane) =>
+      renderGroundPlane(plane, state.pads, state.vias, state.traces, scale, state.defaultTraceWidth),
+    );
+
   // Pads are emitted before traces so that a trace running into a pad renders
   // as one continuous copper shape.
   const pads = state.pads.filter((p) => p.side === side).map((p) => renderPad(p, scale));
@@ -138,7 +160,7 @@ function renderSideGroup(
     `;
 
   return `<g data-side="${side}" data-px-per-unit="${num(scale)}" transform="translate(${offsetX}, 0)">
-    ${image}${[...pads, ...traces, ...vias, ...components].join('\n    ')}
+    ${image}${[...groundPlanes, ...pads, ...traces, ...vias, ...components].join('\n    ')}
   </g>`;
 }
 
