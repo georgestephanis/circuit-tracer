@@ -45,6 +45,9 @@ interface Props {
   /** Pads shift-clicked on the canvas, waiting to be grouped into a Component. */
   padPick: string[];
   onTogglePadPick: (id: string) => void;
+  /** Vias/holes shift-clicked on the canvas, waiting to be grouped into a Component. */
+  viaPick: string[];
+  onToggleViaPick: (id: string) => void;
   onSelectComponent: (id: string) => void;
   onAlign: (side: Side, shotId: string) => void;
   onCyclePackage: (step: number) => void;
@@ -90,6 +93,8 @@ export function BoardPanel({
   onMovePad,
   padPick,
   onTogglePadPick,
+  viaPick,
+  onToggleViaPick,
   onSelectComponent,
   onAlign,
   onCyclePackage,
@@ -526,12 +531,23 @@ export function BoardPanel({
                 {state.components
                   .filter((c) => c.side === side)
                   .map((c) => {
-                    const rect = componentBoundingRect(pads, c.padIds);
+                    const viaRects = state.vias
+                      .filter((v) => c.viaIds.includes(v.id) && v[side])
+                      .map((v) => {
+                        const p = v[side]!;
+                        const r = viaRadiusPx(v.diameter);
+                        return { x: p.x - r, y: p.y - r, width: r * 2, height: r * 2 };
+                      });
+                    const rect = componentBoundingRect(pads, c.padIds, viaRects);
                     if (!rect) return null;
                     const selected =
                       state.selection?.kind === 'component' && state.selection.id === c.id;
-                    // A component follows if any of its pads is in the net.
-                    const dimmed = Boolean(follow && !c.padIds.some((id) => follow.pads.has(id)));
+                    // A component follows if any of its pads or leads is in the net.
+                    const dimmed = Boolean(
+                      follow &&
+                        !c.padIds.some((id) => follow.pads.has(id)) &&
+                        !c.viaIds.some((id) => follow.vias.has(id)),
+                    );
                     const flashed = flash?.kind === 'component' && flash.id === c.id;
                     const pad = Math.max(4, image.width * 0.006) * viewScale;
                     const fs = image.width * 0.016 * viewScale;
@@ -664,6 +680,7 @@ export function BoardPanel({
                   const r = viaRadiusPx(v.diameter);
                   const dimmed = Boolean(follow && !follow.vias.has(v.id));
                   const flashed = flash?.kind === 'via' && flash.id === v.id;
+                  const picked = viaPick.includes(v.id);
                   return (
                     <circle
                       key={v.id}
@@ -680,6 +697,7 @@ export function BoardPanel({
                         (state.selection?.kind === 'via' && state.selection.id === v.id
                           ? ' selected'
                           : '') +
+                        (picked ? ' picked' : '') +
                         (dimmed ? ' dimmed' : '') +
                         (flashed ? ' flash' : '')
                       }
@@ -690,6 +708,10 @@ export function BoardPanel({
                       style={v.ground ? { fill: GROUND_COLOR, stroke: GROUND_COLOR } : undefined}
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (e.shiftKey) {
+                          onToggleViaPick(v.id);
+                          return;
+                        }
                         onSelectVia(v.id);
                       }}
                       onMouseEnter={() => onHoverItem({ kind: 'via', id: v.id })}

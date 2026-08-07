@@ -338,7 +338,8 @@
 }
 
 /* Shift-clicked, waiting to be grouped into a Component. */
-.pad-shape.picked {
+.pad-shape.picked,
+.via-marker.picked {
   outline: 2px dashed #38bdf8;
   outline-offset: 2px;
 }

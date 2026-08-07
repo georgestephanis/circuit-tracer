@@ -117,9 +117,11 @@ export function padSeriesRects(source: Rect, end: Point, count: number): Rect[] 
 export function componentBoundingRect<T extends Rect & { id: string }>(
   pads: T[],
   padIds: string[],
+  /** Through-hole leads (already resolved to this side's pixel rects), if any. */
+  viaRects: Rect[] = [],
 ): Rect | null {
   const idSet = new Set(padIds);
-  const members = pads.filter((p) => idSet.has(p.id));
+  const members: Rect[] = [...pads.filter((p) => idSet.has(p.id)), ...viaRects];
   if (members.length === 0) return null;
   let minX = Infinity;
   let minY = Infinity;

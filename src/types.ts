@@ -81,6 +81,8 @@ export interface Via {
   diameter: number;
   /** Part of the ground net — see `GROUND_COLOR`. */
   ground?: boolean;
+  /** The `Component` this via/hole is a through-hole lead of, if any. */
+  component?: string;
 }
 
 /**
@@ -118,10 +120,61 @@ export interface Pad {
 
 export type PadShape = 'rect' | 'round';
 
+/** Common component kinds, plus a catch-all for anything else. */
+export type ComponentType =
+  | 'resistor'
+  | 'capacitor'
+  | 'inductor'
+  | 'diode'
+  | 'led'
+  | 'transistor'
+  | 'ic'
+  | 'connector'
+  | 'crystal'
+  | 'switch'
+  | 'other';
+
+export const COMPONENT_TYPES: ComponentType[] = [
+  'resistor',
+  'capacitor',
+  'inductor',
+  'diode',
+  'led',
+  'transistor',
+  'ic',
+  'connector',
+  'crystal',
+  'switch',
+  'other',
+];
+
+export const COMPONENT_TYPE_LABELS: Record<ComponentType, string> = {
+  resistor: 'Resistor',
+  capacitor: 'Capacitor',
+  inductor: 'Inductor',
+  diode: 'Diode',
+  led: 'LED',
+  transistor: 'Transistor',
+  ic: 'IC',
+  connector: 'Connector',
+  crystal: 'Crystal / oscillator',
+  switch: 'Switch',
+  other: 'Other',
+};
+
+/** Component types where a "value" (e.g. "10kΩ", "100nF") is meaningful. */
+export const VALUED_COMPONENT_TYPES: ReadonlySet<ComponentType> = new Set<ComponentType>([
+  'resistor',
+  'capacitor',
+  'inductor',
+  'crystal',
+]);
+
 /**
- * A group of 2+ pads that are one physical component's footprint — e.g. the
- * two legs of a resistor. `padIds` and `Pad.component` are kept in sync on
- * both sides, same as every other connection in this app (see
+ * A group of 2+ pads and/or vias/holes that are one physical component's
+ * footprint — e.g. the two legs of a resistor, or the through-hole leads of a
+ * radial capacitor. `padIds`/`viaIds` and `Pad.component`/`Via.component` are
+ * kept in sync on both sides, same as every other connection in this app (see
  * "Connections are stored bidirectionally" in AGENTS.md).
  */
 export interface Component {
@@ -133,6 +186,16 @@ export interface Component {
   /** Free text: part number, value, datasheet link, etc. */
   notes: string;
   padIds: string[];
+  /** Through-hole leads — vias/holes grouped into this component. */
+  viaIds: string[];
+  componentType: ComponentType;
+  /** Free-text value, e.g. "10kΩ" or "100nF" — mainly for resistors/capacitors/etc. */
+  value: string;
+  /**
+   * Free-text role per member id (pad or via), e.g. "Anode", "Pin 1" — for
+   * components where the pads/leads aren't interchangeable.
+   */
+  roles: Record<string, string>;
 }
 
 /**
@@ -180,6 +243,12 @@ export interface BoardState {
    * lifecycle as `draftPad`/`padArray`. Always pads on a single side.
    */
   padPick: string[];
+  /**
+   * Vias/holes shift-clicked on the canvas, waiting to be grouped into a
+   * `Component` alongside `padPick` (through-hole leads aren't tied to one
+   * side). Same armed/cleared lifecycle as `padPick`.
+   */
+  viaPick: string[];
   selection: Selection | null;
   nextTraceNum: number;
   nextViaNum: number;

@@ -427,7 +427,13 @@ function App() {
       if (e.key === 'Enter') {
         if (state.draftTrace) dispatch({ type: 'FINISH_TRACE' });
       } else if (e.key === 'Escape') {
-        if (state.draftTrace || state.draftPad || state.padArray || state.padPick.length > 0) {
+        if (
+          state.draftTrace ||
+          state.draftPad ||
+          state.padArray ||
+          state.padPick.length > 0 ||
+          state.viaPick.length > 0
+        ) {
           dispatch({ type: 'CANCEL_DRAFT' });
         }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -444,6 +450,7 @@ function App() {
     state.draftPad,
     state.padArray,
     state.padPick,
+    state.viaPick,
     state.selection,
     aligning,
     alignBusy,
@@ -585,6 +592,8 @@ function App() {
             onMovePad={(id, dx, dy) => dispatch({ type: 'MOVE_PAD', id, dx, dy })}
             padPick={state.padPick}
             onTogglePadPick={(id) => dispatch({ type: 'TOGGLE_PAD_PICK', id })}
+            viaPick={state.viaPick}
+            onToggleViaPick={(id) => dispatch({ type: 'TOGGLE_VIA_PICK', id })}
             onSelectComponent={(id) =>
               dispatch({ type: 'SELECT', selection: { kind: 'component', id } })
             }
@@ -710,16 +719,24 @@ function App() {
         <SidebarSection title="Components" count={state.components.length}>
           <ComponentList
             components={state.components}
+            pads={state.pads}
+            vias={state.vias}
             selectedId={state.selection?.kind === 'component' ? state.selection.id : null}
             padPick={state.padPick}
+            viaPick={state.viaPick}
             onSelect={(id) => selectFromSidebar({ kind: 'component', id })}
-            onGroup={(label, refDes, notes) =>
-              dispatch({ type: 'ADD_COMPONENT', label, refDes, notes })
+            onGroup={(label, refDes, notes, componentType, value) =>
+              dispatch({ type: 'ADD_COMPONENT', label, refDes, notes, componentType, value })
             }
             onClearPick={() => dispatch({ type: 'CANCEL_DRAFT' })}
             onRename={(id, label) => dispatch({ type: 'RENAME_COMPONENT', id, label })}
             onSetRefDes={(id, refDes) => dispatch({ type: 'SET_COMPONENT_REFDES', id, refDes })}
             onSetNotes={(id, notes) => dispatch({ type: 'SET_COMPONENT_NOTES', id, notes })}
+            onSetType={(id, componentType) => dispatch({ type: 'SET_COMPONENT_TYPE', id, componentType })}
+            onSetValue={(id, value) => dispatch({ type: 'SET_COMPONENT_VALUE', id, value })}
+            onSetRole={(id, memberId, role) =>
+              dispatch({ type: 'SET_COMPONENT_ROLE', id, memberId, role })
+            }
           />
         </SidebarSection>
         {(['via', 'hole'] as const).map((kind) => (

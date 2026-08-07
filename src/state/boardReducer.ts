@@ -1,6 +1,7 @@
 import type {
   BoardState,
   Component,
+  ComponentType,
   HoleKind,
   LengthUnit,
   Pad,
@@ -66,11 +67,17 @@ export type Action =
   | { type: 'PLACE_PAD_ARRAY'; side: Side; point: Point }
   /** Add or remove a pad from the pick set a Component will be grouped from. */
   | { type: 'TOGGLE_PAD_PICK'; id: string }
-  /** Group the current pad pick set into a new Component. */
-  | { type: 'ADD_COMPONENT'; label: string; refDes: string; notes: string }
+  /** Add or remove a via/hole from the pick set a Component will be grouped from. */
+  | { type: 'TOGGLE_VIA_PICK'; id: string }
+  /** Group the current pad+via pick set into a new Component. */
+  | { type: 'ADD_COMPONENT'; label: string; refDes: string; notes: string; componentType: ComponentType; value: string }
   | { type: 'RENAME_COMPONENT'; id: string; label: string }
   | { type: 'SET_COMPONENT_REFDES'; id: string; refDes: string }
   | { type: 'SET_COMPONENT_NOTES'; id: string; notes: string }
+  | { type: 'SET_COMPONENT_TYPE'; id: string; componentType: ComponentType }
+  | { type: 'SET_COMPONENT_VALUE'; id: string; value: string }
+  /** Set or clear a member's (pad or via id) role label within a component. */
+  | { type: 'SET_COMPONENT_ROLE'; id: string; memberId: string; role: string }
   | { type: 'DELETE_SELECTED' }
   | { type: 'RENAME_TRACE'; id: string; label: string }
   | { type: 'RENAME_VIA'; id: string; label: string }
@@ -108,6 +115,7 @@ export const initialState: BoardState = {
   draftPad: null,
   padArray: null,
   padPick: [],
+  viaPick: [],
   selection: null,
   nextTraceNum: 1,
   nextViaNum: 1,
@@ -286,6 +294,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         padArray: null,
         // A pick in flight can't be trusted once a side's pads are rebuilt.
         padPick: [],
+        viaPick: [],
       };
     }
 
@@ -331,6 +340,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         draftPad: null,
         padArray: null,
         padPick: [],
+        viaPick: [],
       };
 
     case 'ADD_TRACE_POINT': {
@@ -355,7 +365,14 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
     }
 
     case 'CANCEL_DRAFT':
-      return { ...state, draftTrace: null, draftPad: null, padArray: null, padPick: [] };
+      return {
+        ...state,
+        draftTrace: null,
+        draftPad: null,
+        padArray: null,
+        padPick: [],
+        viaPick: [],
+      };
 
     case 'FINISH_TRACE': {
       const draft = state.draftTrace;
@@ -662,35 +679,55 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         return { ...state, padPick: state.padPick.filter((id) => id !== action.id) };
       }
       // A component's pads are all on one side, so a pick on the other side
-      // starts a fresh set rather than mixing sides.
+      // starts a fresh set rather than mixing sides — vias aren't side-bound,
+      // so the via pick carries over.
       const first = state.pads.find((p) => p.id === state.padPick[0]);
       const padPick = first && first.side !== pad.side ? [action.id] : [...state.padPick, action.id];
       return { ...state, padPick };
     }
 
+    case 'TOGGLE_VIA_PICK': {
+      const via = state.vias.find((v) => v.id === action.id);
+      // Already part of a component, or gone — nothing to pick.
+      if (!via || via.component) return state;
+      if (state.viaPick.includes(action.id)) {
+        return { ...state, viaPick: state.viaPick.filter((id) => id !== action.id) };
+      }
+      return { ...state, viaPick: [...state.viaPick, action.id] };
+    }
+
     case 'ADD_COMPONENT': {
       const padIds = state.padPick;
-      if (padIds.length < 2) return state;
+      const viaIds = state.viaPick;
+      if (padIds.length + viaIds.length < 2) return state;
       const pad = state.pads.find((p) => p.id === padIds[0]);
-      if (!pad) return state;
+      // Through-hole-only components (no pads) aren't tied to a side.
+      const side: Side = pad ? pad.side : 'front';
 
-      const id = `comp-${pad.side}-${state.nextComponentNum}`;
+      const id = `comp-${side}-${state.nextComponentNum}`;
       const component: Component = {
         id,
-        side: pad.side,
+        side,
         label: action.label,
         refDes: action.refDes,
         notes: action.notes,
         padIds,
+        viaIds,
+        componentType: action.componentType,
+        value: action.value,
+        roles: {},
       };
       const padIdSet = new Set(padIds);
+      const viaIdSet = new Set(viaIds);
 
       return {
         ...state,
         components: [...state.components, component],
         pads: state.pads.map((p) => (padIdSet.has(p.id) ? { ...p, component: id } : p)),
+        vias: state.vias.map((v) => (viaIdSet.has(v.id) ? { ...v, component: id } : v)),
         nextComponentNum: state.nextComponentNum + 1,
         padPick: [],
+        viaPick: [],
         selection: { kind: 'component', id },
       };
     }
@@ -718,6 +755,38 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
           c.id === action.id ? { ...c, notes: action.notes } : c,
         ),
       };
+
+    case 'SET_COMPONENT_TYPE':
+      return {
+        ...state,
+        components: state.components.map((c) =>
+          c.id === action.id ? { ...c, componentType: action.componentType } : c,
+        ),
+      };
+
+    case 'SET_COMPONENT_VALUE':
+      return {
+        ...state,
+        components: state.components.map((c) =>
+          c.id === action.id ? { ...c, value: action.value } : c,
+        ),
+      };
+
+    case 'SET_COMPONENT_ROLE': {
+      return {
+        ...state,
+        components: state.components.map((c) => {
+          if (c.id !== action.id) return c;
+          const roles = { ...c.roles };
+          if (action.role) {
+            roles[action.memberId] = action.role;
+          } else {
+            delete roles[action.memberId];
+          }
+          return { ...c, roles };
+        }),
+      };
+    }
 
     case 'RENAME_TRACE':
       return {
@@ -946,10 +1015,10 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
 
       if (kind === 'pad') {
         // A pad's component loses that pad too, and drops below "two or
-        // more" pads the whole component goes with it.
+        // more" members (pads + vias) the whole component goes with it.
         const releasedComponents = state.components
           .map((c) => (c.padIds.includes(id) ? { ...c, padIds: c.padIds.filter((p) => p !== id) } : c))
-          .filter((c) => c.padIds.length >= 2);
+          .filter((c) => c.padIds.length + c.viaIds.length >= 2);
 
         return {
           ...state,
@@ -970,23 +1039,36 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
           ...state,
           components: state.components.filter((c) => c.id !== id),
           pads: state.pads.map((p) => (p.component === id ? { ...p, component: undefined } : p)),
+          vias: state.vias.map((v) => (v.component === id ? { ...v, component: undefined } : v)),
           selection: null,
         };
       }
 
-      return {
-        ...state,
-        vias: state.vias.filter((v) => v.id !== id),
-        traces: state.traces.map((t) => ({
-          ...t,
-          connectsVia: t.connectsVia.filter((v) => v !== id),
-        })),
-        pads: state.pads.map((p) => ({
-          ...p,
-          connectsVia: p.connectsVia.filter((v) => v !== id),
-        })),
-        selection: null,
-      };
+      if (kind === 'via') {
+        // Same as a pad: the via's component loses that via, and dissolves if
+        // that drops it below 2 combined members.
+        const releasedComponents = state.components
+          .map((c) => (c.viaIds.includes(id) ? { ...c, viaIds: c.viaIds.filter((v) => v !== id) } : c))
+          .filter((c) => c.padIds.length + c.viaIds.length >= 2);
+
+        return {
+          ...state,
+          vias: state.vias.filter((v) => v.id !== id),
+          traces: state.traces.map((t) => ({
+            ...t,
+            connectsVia: t.connectsVia.filter((v) => v !== id),
+          })),
+          pads: state.pads.map((p) => ({
+            ...p,
+            connectsVia: p.connectsVia.filter((v) => v !== id),
+          })),
+          components: releasedComponents,
+          viaPick: state.viaPick.filter((v) => v !== id),
+          selection: null,
+        };
+      }
+
+      return state;
     }
 
     default:
