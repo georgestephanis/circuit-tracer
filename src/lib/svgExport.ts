@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { componentBoundingRect, pointsToPath } from './geometry';
 import { buildGroundPlanePath } from './groundPlane';
+import { computeNets, netLabelsByMember } from './netlist';
 import { UNIT_LABELS, pxPerUnit } from './scale';
 import { downloadFile, safeFileName } from './download';
 
@@ -35,13 +36,29 @@ function labelAttr(label: string): string {
   return label ? ` data-label="${escapeXml(label)}"` : '';
 }
 
-function renderTrace(t: Trace, widthUnits: number, scale: number): string {
-  const d = pointsToPath(t.points);
-  const strokeWidth = Math.max(1, widthUnits * scale);
-  return `<path id="${t.id}" class="trace" data-side="${t.side}"${labelAttr(t.label)}${connectsAttr([...t.connectsVia, ...t.connectsPad])} data-width="${num(widthUnits)}" d="${d}" stroke="${t.color}" stroke-width="${num(strokeWidth)}" fill="none" stroke-linecap="round" stroke-linejoin="round" />`;
+/** `data-net`, present only when this id belongs to a computed net. */
+function netAttr(id: string, netForMember: Map<string, string>): string {
+  const net = netForMember.get(id);
+  return net ? ` data-net="${escapeXml(net)}"` : '';
 }
 
-function renderVia(v: Via, side: Side, scale: number): string {
+function renderTrace(
+  t: Trace,
+  widthUnits: number,
+  scale: number,
+  netForMember: Map<string, string>,
+): string {
+  const d = pointsToPath(t.points);
+  const strokeWidth = Math.max(1, widthUnits * scale);
+  // A trace has no id of its own in the net map — it inherits whichever net
+  // the pad/via at either end belongs to (they're all the same net, by
+  // construction: computeNets unions everything a trace connects).
+  const net = [...t.connectsPad, ...t.connectsVia].map((id) => netForMember.get(id)).find(Boolean);
+  const netAttrStr = net ? ` data-net="${escapeXml(net)}"` : '';
+  return `<path id="${t.id}" class="trace" data-side="${t.side}"${labelAttr(t.label)}${connectsAttr([...t.connectsVia, ...t.connectsPad])}${netAttrStr} data-width="${num(widthUnits)}" d="${d}" stroke="${t.color}" stroke-width="${num(strokeWidth)}" fill="none" stroke-linecap="round" stroke-linejoin="round" />`;
+}
+
+function renderVia(v: Via, side: Side, scale: number, netForMember: Map<string, string>): string {
   const p = v[side];
   if (!p) return '';
   const radius = Math.max(1, (v.diameter / 2) * scale);
@@ -49,12 +66,12 @@ function renderVia(v: Via, side: Side, scale: number): string {
   const isHole = v.kind === 'hole';
   const fill = v.ground ? GROUND_COLOR : isHole ? '#1a1a1a' : '#c0c0c0';
   const strokeWidth = Math.max(1, radius * (isHole ? 0.35 : 0.2));
-  return `<circle id="${v.id}-${side}" class="via via--${v.kind}" data-via-id="${v.id}" data-kind="${v.kind}" data-side="${side}"${labelAttr(v.label)}${groundAttrs(v.ground)} data-diameter="${num(v.diameter)}" cx="${p.x}" cy="${p.y}" r="${num(radius)}" fill="${fill}" stroke="${isHole ? '#c0c0c0' : '#333'}" stroke-width="${num(strokeWidth)}" />`;
+  return `<circle id="${v.id}-${side}" class="via via--${v.kind}" data-via-id="${v.id}" data-kind="${v.kind}" data-side="${side}"${labelAttr(v.label)}${groundAttrs(v.ground)}${netAttr(v.id, netForMember)} data-diameter="${num(v.diameter)}" cx="${p.x}" cy="${p.y}" r="${num(radius)}" fill="${fill}" stroke="${isHole ? '#c0c0c0' : '#333'}" stroke-width="${num(strokeWidth)}" />`;
 }
 
-/** `data-ground` and the GND net name, present only on grounded copper. */
+/** `data-ground`, present only on copper flagged as part of the ground net. */
 function groundAttrs(ground: boolean | undefined): string {
-  return ground ? ' data-ground="true" data-net="GND"' : '';
+  return ground ? ' data-ground="true"' : '';
 }
 
 function renderGroundPlane(
@@ -66,12 +83,12 @@ function renderGroundPlane(
   defaultTraceWidth: number,
 ): string {
   const d = buildGroundPlanePath(plane, pads, vias, traces, scale, defaultTraceWidth);
-  return `<path id="${plane.id}" class="ground-plane" data-side="${plane.side}"${labelAttr(plane.label)}${groundAttrs(true)} d="${d}" fill="${GROUND_COLOR}" fill-rule="nonzero" />`;
+  return `<path id="${plane.id}" class="ground-plane" data-side="${plane.side}"${labelAttr(plane.label)}${groundAttrs(true)} data-net="GND" d="${d}" fill="${GROUND_COLOR}" fill-rule="nonzero" />`;
 }
 
-function renderPad(pad: Pad, scale: number): string {
+function renderPad(pad: Pad, scale: number, netForMember: Map<string, string>): string {
   const fill = pad.ground ? GROUND_COLOR : pad.color;
-  const common = `class="pad pad--${pad.shape}" data-side="${pad.side}" data-shape="${pad.shape}"${labelAttr(pad.label)}${connectsAttr([...pad.connectsTrace, ...pad.connectsVia])}${groundAttrs(pad.ground)}`;
+  const common = `class="pad pad--${pad.shape}" data-side="${pad.side}" data-shape="${pad.shape}"${labelAttr(pad.label)}${connectsAttr([...pad.connectsTrace, ...pad.connectsVia])}${groundAttrs(pad.ground)}${netAttr(pad.id, netForMember)}`;
 
   // A round pad is the circle inscribed in its bounding box, so it exports as a
   // <circle> with a diameter rather than a width and height.
@@ -138,6 +155,7 @@ function renderSideGroup(
   side: Side,
   offsetX: number,
   options: SvgExportOptions,
+  netForMember: Map<string, string>,
 ): string {
   const shot = activeShotOf(state.images, side);
   if (!shot) return '';
@@ -153,11 +171,13 @@ function renderSideGroup(
 
   // Pads are emitted before traces so that a trace running into a pad renders
   // as one continuous copper shape.
-  const pads = state.pads.filter((p) => p.side === side).map((p) => renderPad(p, scale));
+  const pads = state.pads
+    .filter((p) => p.side === side)
+    .map((p) => renderPad(p, scale, netForMember));
   const traces = state.traces
     .filter((t) => t.side === side)
-    .map((t) => renderTrace(t, t.width ?? state.defaultTraceWidth, scale));
-  const vias = state.vias.map((v) => renderVia(v, side, scale)).filter(Boolean);
+    .map((t) => renderTrace(t, t.width ?? state.defaultTraceWidth, scale, netForMember));
+  const vias = state.vias.map((v) => renderVia(v, side, scale, netForMember)).filter(Boolean);
   const components = state.components
     .filter((c) => c.side === side)
     .map((c) => renderComponent(c, state.pads, state.vias, scale))
@@ -174,6 +194,89 @@ function renderSideGroup(
   </g>`;
 }
 
+/**
+ * Escapes a `]]>` that would otherwise prematurely close the CDATA section,
+ * using the standard XML trick of splitting it across two adjacent sections.
+ */
+function cdata(text: string): string {
+  return `<![CDATA[${text.replace(/]]>/g, ']]]]><![CDATA[>')}]]>`;
+}
+
+/**
+ * XML comments may not contain "--" or end in "-". Belt-and-suspenders for
+ * SCHEMA_DOC below (already written to avoid it) so a future edit that slips
+ * one in produces valid-but-slightly-odd output instead of a malformed file.
+ */
+function xmlCommentSafe(text: string): string {
+  return text.replace(/-(?=-)/g, '‑').replace(/-$/, '‑');
+}
+
+/**
+ * Plain-language documentation of this file's own schema, written to stand on
+ * its own — the point is that this SVG can be handed to an LLM (or a person)
+ * with no other context and be understood. Kept in sync with the "Exported
+ * SVG schema" section of README.md; if one changes, so should the other.
+ *
+ * Free of "--" so it stays a legal XML comment.
+ */
+const SCHEMA_DOC = `
+circuit-tracer SVG export — https://github.com/georgestephanis/circuit-tracer
+
+This file documents a traced PCB. It has two <g data-side="front"|"back">
+groups, each that side's photo plus its copper, laid out side by side. Each
+group scales independently — see its own data-px-per-unit, described below.
+
+Elements, by class:
+  .ground-plane <path>   A filled copper pour. Always net "GND".
+  .pad <rect|circle>     A copper pad. shape="round" pads are drawn as a
+                          <circle> with data-diameter; other shapes are a
+                          <rect> with data-width/data-height. A round pad
+                          with no component and no label is usually a test
+                          point.
+  .trace <path>          A length of copper.
+  .via <circle>           A through-board opening: a plated via or a plain
+                          hole, distinguished by data-kind ("via" or "hole",
+                          also present as a class modifier — filter on
+                          data-kind, it's simpler). Each physical opening
+                          produces up to two of these elements, one per side,
+                          sharing one data-via-id but with distinct,
+                          side-suffixed ids ({id}-front / {id}-back). The two
+                          are mirrored in x within their groups, not equal.
+  .component <g>         A non-interactive outline around 2+ pads/vias that
+                          are one physical part's footprint (e.g. both legs
+                          of a resistor). Not copper itself — nothing to
+                          route through it.
+
+Connectivity: data-connects (on a pad or trace) and data-pads/data-vias (on a
+component) are id references into this same document — match against the
+"id" or "data-via-id" attribute elsewhere in the file. Linkage is
+bidirectional: if a pad lists a trace, that trace lists the pad back.
+
+Every piece of copper — pad, via, hole, trace, ground plane — also carries
+data-net, naming the electrical net it belongs to, already fully resolved
+(you should not need to re-derive nets from data-connects/data-ground
+yourself). Grounded copper is always net "GND". A net with only one member
+just means that piece of copper isn't connected to anything else recorded on
+the board. The <script type="application/json"> below this comment restates
+every net (as {label, padIds, viaIds}) and every component (as {id, label,
+refDes, componentType, value, notes, padIds, viaIds, roles}) in one place,
+for a consumer that would rather read structured data than walk the SVG.
+
+Components: componentType is one of resistor/capacitor/inductor/diode/led/
+transistor/ic/connector/crystal/switch/other ("other" if never set). value
+is a free-text part value (e.g. "10k", "100nF"), meaningful mostly for
+resistor/capacitor/inductor/crystal. roles maps a member (pad or via) id to
+a free-text pin role (e.g. "Anode") for parts whose pins aren't
+interchangeable — most components have none.
+
+Units: data-unit on <metadata> names the physical unit (mm, mil, or in) that
+every data-width/data-height/data-diameter is expressed in. On-screen
+positions (x, y, cx, cy, and points in a path's "d") stay in source-image
+pixels; each side's data-px-per-unit is the pixels-per-unit factor to
+convert between the two. data-board-width/data-board-height on <metadata>
+are the board's real dimensions, absent if the user never entered them.
+`.trim();
+
 export function buildCombinedSvg(
   state: BoardState,
   boardName: string,
@@ -189,8 +292,11 @@ export function buildCombinedSvg(
   const totalHeight = Math.max(front.height, back.height);
   const backOffsetX = front.width + GAP;
 
-  const frontGroup = renderSideGroup(state, 'front', 0, options);
-  const backGroup = renderSideGroup(state, 'back', backOffsetX, options);
+  const nets = computeNets(state);
+  const netForMember = netLabelsByMember(nets);
+
+  const frontGroup = renderSideGroup(state, 'front', 0, options, netForMember);
+  const backGroup = renderSideGroup(state, 'back', backOffsetX, options, netForMember);
 
   const timestamp = new Date().toISOString();
   const size = state.boardSize;
@@ -202,10 +308,38 @@ export function buildCombinedSvg(
   const notes = state.notes.trim();
   const descBlock = notes ? `\n  <desc>${escapeXml(notes)}</desc>` : '';
 
+  // A structured restatement of nets + components, for a consumer that would
+  // rather parse JSON than walk the SVG — see SCHEMA_DOC above.
+  const dataPayload = {
+    boardName,
+    generated: timestamp,
+    unit: UNIT_LABELS[state.unit],
+    boardSize: size && size.width > 0 && size.height > 0 ? size : null,
+    notes: notes || undefined,
+    nets: nets.map((n) => ({ label: n.label, padIds: n.padIds, viaIds: n.viaIds })),
+    components: state.components.map((c) => ({
+      id: c.id,
+      side: c.side,
+      label: c.label,
+      refDes: c.refDes,
+      componentType: c.componentType,
+      value: c.value,
+      notes: c.notes,
+      padIds: c.padIds,
+      viaIds: c.viaIds,
+      roles: c.roles,
+    })),
+  };
+  const dataScript = `<script type="application/json" id="circuit-tracer-data">${cdata(JSON.stringify(dataPayload, null, 2))}</script>`;
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${totalWidth} ${totalHeight}" width="${totalWidth}" height="${totalHeight}">
+  <!--
+${xmlCommentSafe(SCHEMA_DOC)}
+  -->
   <title>${escapeXml(boardName)}</title>
   <metadata data-board-name="${escapeXml(boardName)}" data-generated="${timestamp}" data-generator="circuit-tracer" data-unit="${UNIT_LABELS[state.unit]}"${sizeAttrs}></metadata>${descBlock}
+  ${dataScript}
   ${frontGroup}
   ${backGroup}
 </svg>

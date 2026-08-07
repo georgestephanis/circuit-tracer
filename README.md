@@ -508,30 +508,53 @@ board photos themselves. Export always uses each side's **active** shot
 (whichever is currently selected in the [Visibility panel](#visibility-panel)),
 whether or not photos are included.
 
-The export is a single `<svg>` containing two side-by-side groups:
+**The file documents itself.** Right after the opening `<svg>` tag is an XML
+comment restating this whole section in prose, so the export can be handed to
+an LLM (or a person) with no other context — feeding the raw `.svg` file to a
+model is exactly what it's for. Right after that comment is a
+`<script type="application/json" id="circuit-tracer-data">` data island
+restating every net and every component as JSON, for a consumer that would
+rather parse structured data than walk the SVG DOM. Both are kept in sync
+with this section; if one changes in a PR, the others should too.
+
+The export is a single `<svg>` containing that comment and script, followed
+by two side-by-side groups:
 
 ```xml
 <svg>
+  <!-- circuit-tracer SVG export — https://github.com/georgestephanis/circuit-tracer
+       … the whole schema, in prose … -->
   <title>{board name}</title>
   <metadata data-board-name="..." data-generated="..." data-generator="circuit-tracer"
             data-unit="mm" data-board-width="100" data-board-height="80" />
+  <script type="application/json" id="circuit-tracer-data"><![CDATA[
+    {
+      "boardName": "...", "generated": "...", "unit": "mm",
+      "boardSize": { "width": 100, "height": 80 },
+      "nets": [{ "label": "GND", "padIds": ["pad-front-1"], "viaIds": ["via-1"] }, ...],
+      "components": [{ "id": "comp-front-1", "side": "front", "label": "R1", "refDes": "R1",
+        "componentType": "resistor", "value": "10k", "notes": "0603",
+        "padIds": ["pad-front-1", "pad-front-2"], "viaIds": ["via-1"],
+        "roles": { "pad-front-1": "Anode" } }, ...]
+    }
+  ]]></script>
 
   <g data-side="front" data-px-per-unit="10" transform="translate(0, 0)">
     <image href="data:image/...;base64,..." x="0" y="0" width="…" height="…" />
     <path id="groundplane-1" class="ground-plane" data-side="front" data-label="GND pour"
           data-ground="true" data-net="GND" d="M … Z" fill="#6b7280" fill-rule="nonzero" />
     <rect id="pad-front-1" class="pad pad--rect" data-side="front" data-shape="rect"
-          data-connects="trace-front-1 via-1"
+          data-connects="trace-front-1 via-1" data-net="GND"
           data-width="5" data-height="4" x="270" y="80" width="50" height="40" fill="…" />
     <circle id="tp-front-3" class="pad pad--round" data-side="front" data-shape="round"
             data-ground="true" data-net="GND"
             data-diameter="0.75" cx="150" cy="60" r="3.75" fill="#6b7280" />
     <path id="trace-front-1" class="trace" data-side="front" data-label="GND"
-          data-connects="pad-front-1" data-width="0.25" d="M …" stroke="…" stroke-width="2.5" />
+          data-connects="pad-front-1" data-net="GND" data-width="0.25" d="M …" stroke="…" stroke-width="2.5" />
     <circle id="via-1-front" class="via via--via" data-via-id="via-1" data-kind="via"
-            data-side="front" data-diameter="0.4" cx="290" cy="100" r="2" />
+            data-side="front" data-net="GND" data-diameter="0.4" cx="290" cy="100" r="2" />
     <circle id="hole-2-front" class="via via--hole" data-via-id="hole-2" data-kind="hole"
-            data-side="front" data-diameter="1" cx="60" cy="40" r="5" />
+            data-side="front" data-net="NET1" data-diameter="1" cx="60" cy="40" r="5" />
     <g id="comp-front-1" class="component" data-component-id="comp-front-1" data-label="R1"
        data-ref-des="R1" data-component-type="resistor" data-value="10k" data-notes="0603"
        data-pad-count="2" data-pads="pad-front-1 pad-front-2" data-vias="via-1"
@@ -543,11 +566,11 @@ The export is a single `<svg>` containing two side-by-side groups:
 
   <g data-side="back" data-px-per-unit="10" transform="translate({front.width + 40}, 0)">
     <image href="data:image/...;base64,..." x="0" y="0" width="…" height="…" />
-    <path id="trace-back-1" class="trace" data-side="back" data-width="0.25" d="M …" stroke="…" />
+    <path id="trace-back-1" class="trace" data-side="back" data-net="NET2" data-width="0.25" d="M …" stroke="…" />
     <circle id="via-1-back" class="via via--via" data-via-id="via-1" data-kind="via"
-            data-side="back" data-diameter="0.4" cx="110" cy="100" r="2" />
+            data-side="back" data-net="GND" data-diameter="0.4" cx="110" cy="100" r="2" />
     <circle id="hole-2-back" class="via via--hole" data-via-id="hole-2" data-kind="hole"
-            data-side="back" data-diameter="1" cx="340" cy="40" r="5" />
+            data-side="back" data-net="NET1" data-diameter="1" cx="340" cy="40" r="5" />
   </g>
 </svg>
 ```
@@ -555,6 +578,19 @@ The export is a single `<svg>` containing two side-by-side groups:
 Notes for parsers:
 
 - Each side's group carries `data-side="front"` / `data-side="back"`.
+
+### Nets
+
+Every pad, via, hole, trace, and ground plane carries `data-net`, naming the
+electrical net (already fully resolved) that piece of copper belongs to —
+grounded copper is always net `"GND"`; otherwise a connecting trace's label,
+or an anonymous `NET1`, `NET2`, … if none of that group's traces are labeled.
+This is the same computation the [netlist export](#netlist-export) uses, just
+attached to every element rather than only Component pins, and restated as
+the `nets` array in the JSON data island for anyone who'd rather not
+recompute it from `data-connects`. A net with a single member just means that
+piece of copper isn't connected to anything else recorded on the board — it's
+not an error or something dropped.
 
 ### Units and scale
 
@@ -585,8 +621,9 @@ Notes for parsers:
 - Traces are `<path class="trace">` elements. `data-label` is present only if
   the user gave the trace a label. `data-connects` is a space-separated list of
   pad and via IDs this trace connects to, present only if at least one is
-  linked. `data-width` is the trace's physical width; `stroke-width` is that
-  same width in pixels.
+  linked. `data-net` — see [Nets](#nets) — is present unless the trace
+  connects to nothing at all. `data-width` is the trace's physical width;
+  `stroke-width` is that same width in pixels.
 - Pads carry `class="pad"` and a `data-shape`, and their element type follows
   the shape — **check `data-shape`, not the tag**:
   - `data-shape="rect"` → an axis-aligned `<rect class="pad pad--rect">` with
@@ -596,10 +633,9 @@ Notes for parsers:
 - `data-connects` on a pad lists the trace and via IDs it merges with.
   **Linkage is bidirectional**: if a pad lists a trace, that trace also lists
   the pad, so you can traverse from either end.
-- Grounded copper carries `data-ground="true"` and `data-net="GND"`, and is
-  filled in the ground color. Every element with `data-net="GND"` is on one
-  net — that connectivity is *not* also written out as pairwise `data-connects`
-  entries, so treat the flag itself as the linkage.
+- Grounded copper carries `data-ground="true"` and is filled in the ground
+  color; its `data-net` is always `"GND"`. See [Nets](#nets) for `data-net`
+  on non-grounded copper.
 - Pads are emitted **before** traces within a group, so painting them in
   document order renders trace-into-pad as one continuous copper shape.
 - Vias and holes are both `<circle class="via">` elements, distinguished by
@@ -621,6 +657,9 @@ Notes for parsers:
   label.
 - `data-diameter` on a `<circle>` is its physical diameter; `r` is half of that
   in pixels. Both halves always carry the same `data-diameter`.
+- `data-net` on a via/hole — see [Nets](#nets) — is present on essentially
+  every via/hole, including ones that aren't connected to anything else; an
+  unconnected one just gets a singleton net naming only itself.
 - A `<g class="component">` is a non-interactive outline drawn around the
   pads and vias/holes a [Component](#components) groups. `data-component-type`
   is always present (`"other"` if never set); `data-pads` and `data-vias`

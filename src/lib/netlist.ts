@@ -107,6 +107,16 @@ export function computeNets(state: BoardState): Net[] {
   });
 }
 
+/** Every pad/via id in `nets`, mapped to the net label it belongs to. */
+export function netLabelsByMember(nets: Net[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const net of nets) {
+    for (const padId of net.padIds) map.set(padId, net.label);
+    for (const viaId of net.viaIds) map.set(viaId, net.label);
+  }
+  return map;
+}
+
 /**
  * Component → pin → net, for every pad or via/hole grouped into a Component.
  * Ungrouped pads/vias have no "pin" identity in this model, so they aren't
@@ -114,11 +124,7 @@ export function computeNets(state: BoardState): Net[] {
  */
 export function buildNetlist(state: BoardState): NetlistRow[] {
   const nets = computeNets(state);
-  const netForMember = new Map<string, string>();
-  for (const net of nets) {
-    for (const padId of net.padIds) netForMember.set(padId, net.label);
-    for (const viaId of net.viaIds) netForMember.set(viaId, net.label);
-  }
+  const netForMember = netLabelsByMember(nets);
 
   const rows: NetlistRow[] = [];
   for (const c of state.components) {
