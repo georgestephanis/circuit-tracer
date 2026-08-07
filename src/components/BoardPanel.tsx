@@ -436,12 +436,21 @@ export function BoardPanel({
     return null;
   })();
 
+  // Zooming all the way back out via the wheel lands on a view rect that
+  // covers the whole image without ever becoming `null` again — treat that
+  // as equivalent to the reset state so the button disappears once it
+  // would genuinely do nothing.
+  const isDefaultView =
+    !view ||
+    !image ||
+    (view.x <= 0 && view.y <= 0 && view.width >= image.width && view.height >= image.height);
+
   return (
     <div className="board-panel">
       <div className="board-panel-header">
         <h2>{side === 'front' ? 'Front' : 'Back'}</h2>
         <div className="board-panel-actions">
-          {view && (
+          {!isDefaultView && (
             <>
               <span className="export-hint">{Math.round(1 / viewScale)}×</span>
               <button type="button" onClick={() => setView(null)} title="Fit the whole board">
