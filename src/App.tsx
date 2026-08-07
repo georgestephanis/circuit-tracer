@@ -492,6 +492,8 @@ function App() {
           canExportNetlist={state.components.length > 0}
           boardName={state.boardName}
           onSetBoardName={(boardName) => dispatch({ type: 'SET_BOARD_NAME', boardName })}
+          notes={state.notes}
+          onSetNotes={(notes) => dispatch({ type: 'SET_NOTES', notes })}
           onExport={handleExport}
           onExportNetlist={handleExportNetlist}
           onViewSchematic={() => setSchematicOpen(true)}

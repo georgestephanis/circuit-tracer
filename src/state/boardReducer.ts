@@ -95,6 +95,7 @@ export type Action =
   | { type: 'SET_VIA_DIAMETER'; id: string; diameter: number }
   | { type: 'SET_PAD_DIAMETER'; id: string; diameter: number }
   | { type: 'SET_BOARD_NAME'; boardName: string }
+  | { type: 'SET_NOTES'; notes: string }
   | { type: 'RESTORE_SESSION'; session: SavedSession; images: Record<Side, SidePhotos | null> }
   | { type: 'RESET_BOARD' };
 
@@ -105,6 +106,7 @@ const TRACE_COLORS = [
 
 export const initialState: BoardState = {
   boardName: '',
+  notes: '',
   images: { front: null, back: null },
   traces: [],
   vias: [],
@@ -963,6 +965,8 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
 
     case 'SET_BOARD_NAME':
       return { ...state, boardName: action.boardName };
+    case 'SET_NOTES':
+      return { ...state, notes: action.notes };
 
     case 'RESTORE_SESSION': {
       const { session, images } = action;
@@ -970,6 +974,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         ...initialState,
         images,
         boardName: session.boardName,
+        notes: session.notes ?? '',
         traces: session.traces,
         vias: session.vias,
         pads: session.pads,

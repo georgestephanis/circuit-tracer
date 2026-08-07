@@ -74,10 +74,18 @@ function renderPad(pad: Pad, scale: number): string {
  * label, ref-des, notes, and which pads it groups. Additive attributes only,
  * so an SVG parser that predates Components is unaffected.
  */
-function renderComponent(c: Component, pads: Pad[]): string {
+function renderComponent(c: Component, pads: Pad[], vias: Via[], scale: number): string {
+  const viaRects = vias
+    .filter((v) => c.viaIds.includes(v.id) && v[c.side])
+    .map((v) => {
+      const p = v[c.side]!;
+      const r = Math.max(1, (v.diameter / 2) * scale);
+      return { x: p.x - r, y: p.y - r, width: r * 2, height: r * 2 };
+    });
   const rect = componentBoundingRect(
     pads.filter((p) => p.side === c.side),
     c.padIds,
+    viaRects,
   );
   if (!rect) return '';
   const padAttr = ` data-pad-count="${c.padIds.length}"`;
@@ -120,7 +128,7 @@ function renderSideGroup(
   const vias = state.vias.map((v) => renderVia(v, side, scale)).filter(Boolean);
   const components = state.components
     .filter((c) => c.side === side)
-    .map((c) => renderComponent(c, state.pads))
+    .map((c) => renderComponent(c, state.pads, state.vias, scale))
     .filter(Boolean);
 
   const image =
@@ -159,10 +167,13 @@ export function buildCombinedSvg(
       ? ` data-board-width="${num(size.width)}" data-board-height="${num(size.height)}"`
       : '';
 
+  const notes = state.notes.trim();
+  const descBlock = notes ? `\n  <desc>${escapeXml(notes)}</desc>` : '';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${totalWidth} ${totalHeight}" width="${totalWidth}" height="${totalHeight}">
   <title>${escapeXml(boardName)}</title>
-  <metadata data-board-name="${escapeXml(boardName)}" data-generated="${timestamp}" data-generator="circuit-tracer" data-unit="${UNIT_LABELS[state.unit]}"${sizeAttrs}></metadata>
+  <metadata data-board-name="${escapeXml(boardName)}" data-generated="${timestamp}" data-generator="circuit-tracer" data-unit="${UNIT_LABELS[state.unit]}"${sizeAttrs}></metadata>${descBlock}
   ${frontGroup}
   ${backGroup}
 </svg>

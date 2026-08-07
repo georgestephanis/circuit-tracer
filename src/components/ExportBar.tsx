@@ -3,6 +3,8 @@ interface Props {
   canExportNetlist: boolean;
   boardName: string;
   onSetBoardName: (name: string) => void;
+  notes: string;
+  onSetNotes: (notes: string) => void;
   onExport: () => void;
   onExportNetlist: () => void;
   onViewSchematic: () => void;
@@ -15,6 +17,8 @@ export function ExportBar({
   canExportNetlist,
   boardName,
   onSetBoardName,
+  notes,
+  onSetNotes,
   onExport,
   onExportNetlist,
   onViewSchematic,
@@ -52,6 +56,12 @@ export function ExportBar({
       {canExport && !canExportNetlist && (
         <span className="export-hint">Group 2+ pads into a component to export a netlist.</span>
       )}
+      <textarea
+        className="export-bar-notes"
+        placeholder="Board notes (embedded in the SVG export)…"
+        value={notes}
+        onChange={(e) => onSetNotes(e.target.value)}
+      />
     </div>
   );
 }

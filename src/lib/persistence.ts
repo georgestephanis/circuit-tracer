@@ -64,6 +64,8 @@ export interface SavedSession {
   version: number;
   savedAt: string;
   boardName: string;
+  /** Free-text board notes, embedded in the SVG export. Absent in pre-v6 sessions. */
+  notes?: string;
   traces: Trace[];
   vias: Via[];
   pads: Pad[];
@@ -223,6 +225,7 @@ export function snapshotFromState(state: BoardState): SavedSession {
     version: SCHEMA_VERSION,
     savedAt: new Date().toISOString(),
     boardName: state.boardName,
+    notes: state.notes,
     traces: state.traces,
     vias: state.vias,
     pads: state.pads,

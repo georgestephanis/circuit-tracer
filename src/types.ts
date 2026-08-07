@@ -222,6 +222,8 @@ export interface Selection {
 export interface BoardState {
   /** Used as the export's <title> and the downloaded filename. */
   boardName: string;
+  /** Free-text notes about the board, embedded in the SVG export. */
+  notes: string;
   images: Record<Side, SidePhotos | null>;
   traces: Trace[];
   /** Every through-board opening, of both kinds — see `Via.kind`. */
