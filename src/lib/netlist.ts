@@ -1,4 +1,4 @@
-import type { BoardState } from '../types';
+import type { BoardState, ComponentType } from '../types';
 import { downloadFile, safeFileName } from './download';
 
 /** One electrically-connected group of pads/vias, with the name it should export under. */
@@ -13,6 +13,18 @@ export interface NetlistRow {
   component: string;
   pin: string;
   net: string;
+  /** The pin's assigned role (e.g. "Anode"), if the component set one. */
+  role?: string;
+}
+
+/** BOM-ish summary of one Component, alongside the netlist rows. */
+export interface NetlistComponent {
+  id: string;
+  label: string;
+  refDes: string;
+  componentType: ComponentType;
+  value: string;
+  notes: string;
 }
 
 // Union-find over "pad:<id>" / "via:<id>" keys, so pads and vias share one
@@ -96,28 +108,53 @@ export function computeNets(state: BoardState): Net[] {
 }
 
 /**
- * Component → pin → net, for every pad grouped into a Component. Ungrouped
- * pads have no "pin" identity in this model, so they aren't rows here.
+ * Component → pin → net, for every pad or via/hole grouped into a Component.
+ * Ungrouped pads/vias have no "pin" identity in this model, so they aren't
+ * rows here.
  */
 export function buildNetlist(state: BoardState): NetlistRow[] {
   const nets = computeNets(state);
-  const netForPad = new Map<string, string>();
+  const netForMember = new Map<string, string>();
   for (const net of nets) {
-    for (const padId of net.padIds) netForPad.set(padId, net.label);
+    for (const padId of net.padIds) netForMember.set(padId, net.label);
+    for (const viaId of net.viaIds) netForMember.set(viaId, net.label);
   }
 
   const rows: NetlistRow[] = [];
   for (const c of state.components) {
     const name = c.refDes || c.label || c.id;
-    for (const padId of c.padIds) {
-      rows.push({ component: name, pin: padId, net: netForPad.get(padId) ?? 'NC' });
+    for (const memberId of [...c.padIds, ...c.viaIds]) {
+      const role = c.roles[memberId];
+      rows.push({
+        component: name,
+        pin: memberId,
+        net: netForMember.get(memberId) ?? 'NC',
+        ...(role ? { role } : {}),
+      });
     }
   }
   return rows;
 }
 
+/** One BOM-ish row per Component — the type/value/notes a netlist row alone can't carry. */
+export function buildComponentSummary(state: BoardState): NetlistComponent[] {
+  return state.components.map((c) => ({
+    id: c.id,
+    label: c.label,
+    refDes: c.refDes,
+    componentType: c.componentType,
+    value: c.value,
+    notes: c.notes,
+  }));
+}
+
 export function downloadNetlist(state: BoardState, boardName: string): void {
   const rows = buildNetlist(state);
-  const json = JSON.stringify({ boardName, generated: new Date().toISOString(), rows }, null, 2);
+  const components = buildComponentSummary(state);
+  const json = JSON.stringify(
+    { boardName, generated: new Date().toISOString(), components, rows },
+    null,
+    2,
+  );
   downloadFile(json, `${safeFileName(boardName)}.netlist.json`, 'application/json');
 }

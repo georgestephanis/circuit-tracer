@@ -292,8 +292,12 @@ it's how the netlist export (below) knows what a pin belongs to.
 ### Netlist export
 
 Once at least one component exists, **Export netlist** in the header downloads
-a JSON file of `{ component, pin, net }` rows — one per pad in every
-component, with the net name derived from existing trace/via connectivity
+a JSON file with two top-level arrays: `components` (one row per Component —
+`id`, `label`, `refDes`, `componentType`, `value`, `notes`, a small BOM in
+itself) and `rows`, the `{ component, pin, net, role? }` connectivity — one
+per pad *and* via/hole in every component (a through-hole part's leads are
+vias, not pads, so they're included too), with `role` present only when that
+member has one set. The net name comes from existing trace/via connectivity
 (grounded copper is always net `"GND"`; otherwise a connecting trace's label,
 or an anonymous `NET1`, `NET2`, … if none of that group's traces are labeled).
 It's also the input to the in-app schematic view below, and can be imported
@@ -302,28 +306,31 @@ into a real EDA tool (KiCad, EasyEDA, …) on its own.
 ### Schematic view
 
 **View schematic** in the header opens a generated schematic: each component
-is drawn as a box (or a real symbol — see below) with its pads as pins, wired
-together by net (auto-laid-out with [elkjs](https://github.com/kieler/elkjs),
-with orthogonal routing and tuned crossing-minimization so it reads like a
-schematic rather than a tangle of wires). A pin's left/right side is
-**cosmetic only** — pads carry no electrical direction, so it's not an
-input/output distinction, just how the pick order was split across the two
-sides of the box; ELK is still free to reorder pins within a side to reduce
-crossings. Nets touching only one component pin (the rest of that copper
-isn't part of any component) draw as a short labeled stub instead of being
-silently dropped — a stub on the `GND` net draws the standard earth-ground
-glyph instead of a bare line.
+is drawn as a box (or a real symbol — see below) with its pads and vias/holes
+as pins, wired together by net (auto-laid-out with
+[elkjs](https://github.com/kieler/elkjs), with orthogonal routing and tuned
+crossing-minimization so it reads like a schematic rather than a tangle of
+wires). A component's title shows its value in parens when it has one (e.g.
+`R7 (10kΩ)`). A pin's left/right side is **cosmetic only** — pads/vias carry
+no electrical direction, so it's not an input/output distinction, just how
+the pick order was split across the two sides of the box; ELK is still free
+to reorder pins within a side to reduce crossings. Nets touching only one
+component pin (the rest of that copper isn't part of any component) draw as
+a short labeled stub instead of being silently dropped — a stub on the `GND`
+net draws the standard earth-ground glyph instead of a bare line.
 
-A 2-pad component whose refDes starts with `R`, `C`, `L`, or `D` is drawn as
-a real resistor/capacitor/inductor/diode symbol instead of a generic labeled
-box (this is a cosmetic guess from the refDes text, not stored data — a
-component named "R7" that isn't actually a resistor just gets a resistor
-glyph). Every other component — including anything with 3+ pins, like
-transistors or ICs — keeps the generic box, since real transistor/IC symbols
-need pin geometry this doesn't attempt. These symbol shapes were inspired by
-the per-device glyphs in [netlist-viewer](https://github.com/f18m/netlist-viewer)
-(by Francesco Montorsi, GPL-2.0) — hand-drawn here, not ported code.
-**Download SVG** saves the same rendering that's shown inline.
+A 2-pin component is drawn as a real resistor/capacitor/inductor/diode symbol
+instead of a generic labeled box when its **Type** is one of those four;
+failing that, it falls back to guessing from a refDes starting with `R`, `C`,
+`L`, or `D` (a cosmetic guess from text, not stored data — a component named
+"R7" whose Type isn't actually resistor just gets a resistor glyph on the
+refDes guess alone). Every other component — including anything with 3+
+pins, like transistors or ICs — keeps the generic box, since real
+transistor/IC symbols need pin geometry this doesn't attempt. These symbol
+shapes were inspired by the per-device glyphs in
+[netlist-viewer](https://github.com/f18m/netlist-viewer) (by Francesco
+Montorsi, GPL-2.0) — hand-drawn here, not ported code. **Download SVG** saves
+the same rendering that's shown inline.
 
 ## SMD packages
 
@@ -526,8 +533,9 @@ The export is a single `<svg>` containing two side-by-side groups:
     <circle id="hole-2-front" class="via via--hole" data-via-id="hole-2" data-kind="hole"
             data-side="front" data-diameter="1" cx="60" cy="40" r="5" />
     <g id="comp-front-1" class="component" data-component-id="comp-front-1" data-label="R1"
-       data-ref-des="R1" data-notes="10k 0603" data-pad-count="2"
-       data-pads="pad-front-1 pad-front-2">
+       data-ref-des="R1" data-component-type="resistor" data-value="10k" data-notes="0603"
+       data-pad-count="2" data-pads="pad-front-1 pad-front-2" data-vias="via-1"
+       data-roles="pad-front-1:Anode">
       <rect x="265" y="75" width="60" height="50" fill="none" stroke="#94a3b8"
             stroke-width="1.5" stroke-dasharray="4 3" />
     </g>
@@ -613,8 +621,12 @@ Notes for parsers:
   label.
 - `data-diameter` on a `<circle>` is its physical diameter; `r` is half of that
   in pixels. Both halves always carry the same `data-diameter`.
-- A `<g class="component">` is a non-interactive outline drawn around the pads
-  a [Component](#components) groups. `data-pads` lists their ids (space-
-  separated); `data-ref-des` and `data-notes` are present only if the user
-  filled them in. Its `<rect>` child has no `id`/`data-*` of its own — the
+- A `<g class="component">` is a non-interactive outline drawn around the
+  pads and vias/holes a [Component](#components) groups. `data-component-type`
+  is always present (`"other"` if never set); `data-pads` and `data-vias`
+  list member ids (space-separated), each present only if that Component has
+  members of that kind. `data-ref-des`, `data-value`, and `data-notes` are
+  present only if the user filled them in. `data-roles` is a space-separated
+  list of `{member-id}:{role}` tokens, present only for members that actually
+  have a role set. Its `<rect>` child has no `id`/`data-*` of its own — the
   group is the addressable element.

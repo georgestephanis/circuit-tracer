@@ -84,9 +84,10 @@ function renderPad(pad: Pad, scale: number): string {
 
 /**
  * A Component's outline, as a non-interactive group carrying the fields a
- * downstream tool (or a human) would want when re-deriving a schematic:
- * label, ref-des, notes, and which pads it groups. Additive attributes only,
- * so an SVG parser that predates Components is unaffected.
+ * downstream tool (or a human) would want when re-deriving a schematic or
+ * BOM: label, ref-des, type, value, notes, and which pads/vias it groups,
+ * with per-member roles. Additive attributes only, so an SVG parser that
+ * predates Components — or predates type/value/roles — is unaffected.
  */
 function renderComponent(c: Component, pads: Pad[], vias: Via[], scale: number): string {
   const viaRects = vias
@@ -104,9 +105,18 @@ function renderComponent(c: Component, pads: Pad[], vias: Via[], scale: number):
   if (!rect) return '';
   const padAttr = ` data-pad-count="${c.padIds.length}"`;
   const refDesAttr = c.refDes ? ` data-ref-des="${escapeXml(c.refDes)}"` : '';
+  const typeAttr = ` data-component-type="${c.componentType}"`;
+  const valueAttr = c.value ? ` data-value="${escapeXml(c.value)}"` : '';
   const notesAttr = c.notes ? ` data-notes="${escapeXml(c.notes)}"` : '';
   const padsAttr = c.padIds.length ? ` data-pads="${escapeXml(c.padIds.join(' '))}"` : '';
-  return `<g id="${c.id}" class="component" data-component-id="${c.id}"${labelAttr(c.label)}${refDesAttr}${notesAttr}${padAttr}${padsAttr}>
+  const viasAttr = c.viaIds.length ? ` data-vias="${escapeXml(c.viaIds.join(' '))}"` : '';
+  // One `id:role` token per member that actually has a role set — most
+  // components have none, so this is absent far more often than present.
+  const roleEntries = Object.entries(c.roles).filter(([, role]) => role.trim());
+  const rolesAttr = roleEntries.length
+    ? ` data-roles="${escapeXml(roleEntries.map(([id, role]) => `${id}:${role}`).join(' '))}"`
+    : '';
+  return `<g id="${c.id}" class="component" data-component-id="${c.id}"${labelAttr(c.label)}${refDesAttr}${typeAttr}${valueAttr}${notesAttr}${padAttr}${padsAttr}${viasAttr}${rolesAttr}>
     <rect x="${num(rect.x)}" y="${num(rect.y)}" width="${num(rect.width)}" height="${num(rect.height)}" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 3" />
   </g>`;
 }

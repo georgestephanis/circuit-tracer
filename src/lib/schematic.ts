@@ -1,6 +1,6 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk-api';
-import type { BoardState } from '../types';
+import type { BoardState, ComponentType } from '../types';
 import { computeNets } from './netlist';
 import { downloadFile, safeFileName } from './download';
 
@@ -24,7 +24,8 @@ const BG = '#ffffff';
 
 interface PinRef {
   componentId: string;
-  padId: string;
+  /** A pad or via/hole id — components group both, see `Component.viaIds`. */
+  memberId: string;
 }
 
 /** Rough width estimate — no real text measurement available at layout time. */
@@ -34,19 +35,16 @@ function labelWidth(label: string): number {
 
 function componentTitle(state: BoardState, componentId: string): string {
   const c = state.components.find((x) => x.id === componentId);
-  return c?.refDes || c?.label || componentId;
+  if (!c) return componentId;
+  const name = c.refDes || c.label || componentId;
+  return c.value ? `${name} (${c.value})` : name;
 }
 
 /**
- * Cosmetic heuristic, not stored data: guesses a standard 2-terminal device
- * symbol from the leading letters of a refDes, using the same PCB refDes
- * convention (R/C/L/D...) that SPICE netlists and netlist-viewer's own
- * parser key their device types off. A component named "R7" that isn't
- * actually a resistor just gets a resistor glyph — that's a rendering
- * choice, not a modeling claim, so it's fine for it to be wrong sometimes.
- * Only applies to exactly-2-pad components; 3+-pin parts (transistors,
- * ICs) keep the generic labeled box, since a real symbol for those needs
- * bespoke pin geometry this doesn't attempt.
+ * A standard 2-terminal device symbol, drawn instead of the generic labeled
+ * box. Only applies to exactly-2-pad-or-lead components; 3+-pin parts
+ * (transistors, ICs) keep the generic box, since a real symbol for those
+ * needs bespoke pin geometry this doesn't attempt.
  *
  * Symbol shapes below are inspired by the per-device glyphs in
  * netlist-viewer (https://github.com/f18m/netlist-viewer, by Francesco
@@ -55,8 +53,32 @@ function componentTitle(state: BoardState, componentId: string): string {
  */
 type DeviceKind = 'resistor' | 'capacitor' | 'inductor' | 'diode';
 
-function inferDeviceKind(refDes: string, padCount: number): DeviceKind | null {
-  if (padCount !== 2) return null;
+/** `ComponentType` values with a matching schematic glyph. */
+const DEVICE_KIND_BY_COMPONENT_TYPE: Partial<Record<ComponentType, DeviceKind>> = {
+  resistor: 'resistor',
+  capacitor: 'capacitor',
+  inductor: 'inductor',
+  diode: 'diode',
+};
+
+/**
+ * Prefers the component's own stored `componentType` — set by the user, not
+ * guessed — and only falls back to the old refDes-prefix heuristic (the same
+ * R/C/L/D convention SPICE netlists and netlist-viewer's own parser key
+ * their device types off) when the type is unset or has no glyph of its own
+ * (`other`, or a type like `led`/`ic` this renderer doesn't draw). A
+ * component named "R7" that isn't actually a resistor just gets a resistor
+ * glyph in that fallback case — a rendering choice, not a modeling claim, so
+ * it's fine for it to be wrong sometimes.
+ */
+function inferDeviceKind(
+  componentType: ComponentType,
+  refDes: string,
+  memberCount: number,
+): DeviceKind | null {
+  if (memberCount !== 2) return null;
+  const fromType = DEVICE_KIND_BY_COMPONENT_TYPE[componentType];
+  if (fromType) return fromType;
   const prefix = /^([A-Za-z]+)/.exec(refDes.trim())?.[1]?.toUpperCase();
   switch (prefix) {
     case 'R':
@@ -165,31 +187,36 @@ function groundSymbolSvg(x: number, y: number): string {
  */
 export async function renderSchematic(state: BoardState): Promise<string> {
   const nets = computeNets(state);
-  const padOwner = new Map<string, PinRef>();
+  const memberOwner = new Map<string, PinRef>();
   for (const c of state.components) {
-    for (const padId of c.padIds) padOwner.set(padId, { componentId: c.id, padId });
+    for (const memberId of [...c.padIds, ...c.viaIds]) {
+      memberOwner.set(memberId, { componentId: c.id, memberId });
+    }
   }
 
   const deviceKinds = new Map<string, DeviceKind>();
 
   const elkNodes: ElkNode[] = state.components.map((c) => {
-    const west = c.padIds.filter((_, i) => i % 2 === 0);
-    const east = c.padIds.filter((_, i) => i % 2 === 1);
+    // Pads and vias/holes are both pins — a through-hole part's leads are
+    // vias, not pads (see AGENTS.md "A Component is a grouping relationship").
+    const members = [...c.padIds, ...c.viaIds];
+    const west = members.filter((_, i) => i % 2 === 0);
+    const east = members.filter((_, i) => i % 2 === 1);
     const height = PIN_PITCH * Math.max(west.length, east.length, 1) + NODE_MARGIN;
     const width = labelWidth(c.refDes || c.label || c.id);
 
-    const kind = inferDeviceKind(c.refDes || c.label || '', c.padIds.length);
+    const kind = inferDeviceKind(c.componentType, c.refDes || c.label || '', members.length);
     if (kind) deviceKinds.set(c.id, kind);
 
     const ports = [
-      ...west.map((padId) => ({
-        id: `port:${padId}`,
+      ...west.map((memberId) => ({
+        id: `port:${memberId}`,
         width: 1,
         height: 1,
         layoutOptions: { 'org.eclipse.elk.port.side': 'WEST' },
       })),
-      ...east.map((padId) => ({
-        id: `port:${padId}`,
+      ...east.map((memberId) => ({
+        id: `port:${memberId}`,
         width: 1,
         height: 1,
         layoutOptions: { 'org.eclipse.elk.port.side': 'EAST' },
@@ -215,7 +242,9 @@ export async function renderSchematic(state: BoardState): Promise<string> {
   let stubCount = 0;
 
   for (const net of nets) {
-    const pins = net.padIds.map((id) => padOwner.get(id)).filter((p): p is PinRef => !!p);
+    const pins = [...net.padIds, ...net.viaIds]
+      .map((id) => memberOwner.get(id))
+      .filter((p): p is PinRef => !!p);
     if (pins.length === 0) continue;
 
     if (pins.length === 1) {
@@ -225,7 +254,7 @@ export async function renderSchematic(state: BoardState): Promise<string> {
       const edgeId = `edge:${net.label}:0`;
       elkEdges.push({
         id: edgeId,
-        sources: [`port:${pins[0].padId}`],
+        sources: [`port:${pins[0].memberId}`],
         targets: [stubId],
       });
       edgeLabels.set(edgeId, net.label);
@@ -233,8 +262,8 @@ export async function renderSchematic(state: BoardState): Promise<string> {
       const edgeId = `edge:${net.label}:0`;
       elkEdges.push({
         id: edgeId,
-        sources: [`port:${pins[0].padId}`],
-        targets: [`port:${pins[1].padId}`],
+        sources: [`port:${pins[0].memberId}`],
+        targets: [`port:${pins[1].memberId}`],
       });
       edgeLabels.set(edgeId, net.label);
     } else {
@@ -242,7 +271,7 @@ export async function renderSchematic(state: BoardState): Promise<string> {
       junctionNodes.push({ id: junctionId, width: 1, height: 1 });
       pins.forEach((pin, i) => {
         const edgeId = `edge:${net.label}:${i}`;
-        elkEdges.push({ id: edgeId, sources: [`port:${pin.padId}`], targets: [junctionId] });
+        elkEdges.push({ id: edgeId, sources: [`port:${pin.memberId}`], targets: [junctionId] });
         if (i === 0) edgeLabels.set(edgeId, net.label);
       });
     }
