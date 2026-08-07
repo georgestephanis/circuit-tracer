@@ -548,7 +548,7 @@ function App() {
         selectedPadId={state.selection?.kind === 'pad' ? state.selection.id : null}
         padArrayCount={state.padArray?.count ?? null}
         packageIndex={state.packageIndex}
-        packageRotated={state.packageRotated}
+        packageRotation={state.packageRotation}
         onSelectPackage={(index) =>
           dispatch({ type: 'CYCLE_PACKAGE', step: index - state.packageIndex })
         }

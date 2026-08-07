@@ -19,7 +19,7 @@ import {
   throughBoard,
 } from '../lib/geometry';
 import { UNIT_LABELS, formatLength, pxPerUnit } from '../lib/scale';
-import { SMD_PACKAGES, packagePads } from '../lib/packages';
+import { FOOTPRINTS, packagePads } from '../lib/packages';
 import { ImageUploader } from './ImageUploader';
 
 /** Zoom change per wheel notch. */
@@ -358,9 +358,9 @@ export function BoardPanel({
    * anything is committed.
    */
   // The footprint the package tool would drop here, at true scale.
-  const pkg = SMD_PACKAGES[state.packageIndex];
+  const pkg = FOOTPRINTS[state.packageIndex];
   const packagePreview =
-    placingPackage && hover ? packagePads(pkg, hover, scale, state.packageRotated) : [];
+    placingPackage && hover ? packagePads(pkg, hover, scale, state.packageRotation) : [];
 
   const sizePreview = (() => {
     if (!hover) return null;
@@ -368,7 +368,7 @@ export function BoardPanel({
       return {
         kind: 'package' as const,
         radius: 0,
-        text: `${pkg.name}${state.packageRotated ? ' ↕' : ' ↔'}`,
+        text: `${pkg.name}${state.packageRotation ? ` ${state.packageRotation * 90}°` : ''}`,
       };
     }
     if (placingRound) {
@@ -803,19 +803,31 @@ export function BoardPanel({
                 />
               )}
 
-              {/* The SMD footprint that would be dropped here. */}
-              {packagePreview.map((r, i) => (
-                <rect
-                  key={i}
-                  x={r.x}
-                  y={r.y}
-                  width={r.width}
-                  height={r.height}
-                  className="size-preview-mark"
-                  strokeWidth={Math.max(1, image.width * 0.002) * viewScale}
-                  pointerEvents="none"
-                />
-              ))}
+              {/* The footprint that would be dropped here. */}
+              {packagePreview.map((p, i) =>
+                p.shape === 'round' ? (
+                  <circle
+                    key={i}
+                    cx={p.rect.x + p.rect.width / 2}
+                    cy={p.rect.y + p.rect.height / 2}
+                    r={p.rect.width / 2}
+                    className="size-preview-mark"
+                    strokeWidth={Math.max(1, image.width * 0.002) * viewScale}
+                    pointerEvents="none"
+                  />
+                ) : (
+                  <rect
+                    key={i}
+                    x={p.rect.x}
+                    y={p.rect.y}
+                    width={p.rect.width}
+                    height={p.rect.height}
+                    className="size-preview-mark"
+                    strokeWidth={Math.max(1, image.width * 0.002) * viewScale}
+                    pointerEvents="none"
+                  />
+                ),
+              )}
 
               {/* The pad series that would be created if you clicked here. */}
               {seriesPreview.map((r, i) => (

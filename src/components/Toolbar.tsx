@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Tool } from '../types';
-import { SMD_PACKAGES } from '../lib/packages';
+import { FOOTPRINTS } from '../lib/packages';
 
 /** Series shorter than this aren't a series; the reducer enforces it too. */
 const MIN_SERIES = 2;
@@ -15,7 +15,7 @@ interface Props {
   /** How many pads the armed series will end up with, or null if not armed. */
   padArrayCount: number | null;
   packageIndex: number;
-  packageRotated: boolean;
+  packageRotation: number;
   onSelectPackage: (index: number) => void;
   onRotatePackage: () => void;
   onSetTool: (tool: Tool) => void;
@@ -42,7 +42,7 @@ export function Toolbar({
   selectedPadId,
   padArrayCount,
   packageIndex,
-  packageRotated,
+  packageRotation,
   onSelectPackage,
   onRotatePackage,
   onSetTool,
@@ -160,7 +160,7 @@ export function Toolbar({
               value={packageIndex}
               onChange={(e) => onSelectPackage(Number(e.target.value))}
             >
-              {SMD_PACKAGES.map((p, i) => (
+              {FOOTPRINTS.map((p, i) => (
                 <option key={p.name} value={i}>
                   {p.name}
                 </option>
@@ -168,7 +168,7 @@ export function Toolbar({
             </select>
           </label>
           <button type="button" onClick={onRotatePackage}>
-            Rotate ({packageRotated ? 'vertical' : 'horizontal'})
+            Rotate ({packageRotation * 90}°)
           </button>
           <span className="export-hint">
             Scroll to step through footprints, right-click to rotate. Click to drop both pads.

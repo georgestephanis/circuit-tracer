@@ -275,8 +275,8 @@ export interface BoardState {
    * a hole drilled on one side comes out on the other.
    */
   backFlip: FlipAxis;
-  /** Index into `SMD_PACKAGES` for the footprint the package tool will place. */
+  /** Index into `FOOTPRINTS` for the footprint the package tool will place. */
   packageIndex: number;
-  /** Whether that footprint is turned a quarter turn from its default axis. */
-  packageRotated: boolean;
+  /** Quarter turns (0-3) applied to that footprint's default orientation. */
+  packageRotation: number;
 }

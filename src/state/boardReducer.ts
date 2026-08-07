@@ -28,7 +28,7 @@ import {
   throughBoard,
 } from '../lib/geometry';
 import { clampLength, convertLength, pxPerUnit } from '../lib/scale';
-import { SMD_PACKAGES, cyclePackage, packagePads } from '../lib/packages';
+import { FOOTPRINTS, cyclePackage, packagePads } from '../lib/packages';
 import type { SavedSession } from '../lib/persistence';
 
 export type Action =
@@ -134,7 +134,7 @@ export const initialState: BoardState = {
   defaultTestPointDiameter: 0.75,
   backFlip: 'horizontal',
   packageIndex: 1,
-  packageRotated: false,
+  packageRotation: 0,
 };
 
 /** Set the board's default size for one of the round things you can place. */
@@ -530,24 +530,24 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
       return { ...state, packageIndex: cyclePackage(state.packageIndex, action.step) };
 
     case 'ROTATE_PACKAGE':
-      return { ...state, packageRotated: !state.packageRotated };
+      return { ...state, packageRotation: (state.packageRotation + 1) % 4 };
 
     case 'ADD_PACKAGE': {
-      // Both pads of the footprint land in one click, as one part.
+      // Every pad of the footprint lands in one click, as one part.
       const scale = pxPerUnit(activeShot(state, action.side), state.boardSize, state.unit);
-      const pkg = SMD_PACKAGES[state.packageIndex];
-      const rects = packagePads(pkg, action.point, scale, state.packageRotated);
+      const pkg = FOOTPRINTS[state.packageIndex];
+      const placed = packagePads(pkg, action.point, scale, state.packageRotation);
 
       const created: Pad[] = [];
       let num = state.nextPadNum;
-      for (const rect of rects) {
+      for (const { rect, shape, role } of placed) {
         const { traces, vias } = padConnections(state, action.side, rect);
         created.push({
           id: `pad-${action.side}-${num}`,
           side: action.side,
-          shape: 'rect',
+          shape,
           ...rect,
-          label: '',
+          label: role ?? '',
           color: traces[0]?.color ?? TRACE_COLORS[(num - 1) % TRACE_COLORS.length],
           connectsTrace: traces.map((t) => t.id),
           connectsVia: vias.map((v) => v.id),
@@ -995,7 +995,7 @@ export function boardReducer(state: BoardState, action: Action): BoardState {
         // shouldn't yank the tool out from under you.
         tool: state.tool,
         packageIndex: state.packageIndex,
-        packageRotated: state.packageRotated,
+        packageRotation: state.packageRotation,
       };
     }
 
