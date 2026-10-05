@@ -29,7 +29,7 @@ import {
   throughBoard,
 } from '../lib/geometry';
 import { clampLength, convertLength, pxPerUnit } from '../lib/scale';
-import { FOOTPRINTS, cyclePackage, packagePads } from '../lib/packages';
+import { DEFAULT_PACKAGE_INDEX, FOOTPRINTS, cyclePackage, packagePads } from '../lib/packages';
 import type { SavedSession } from '../lib/persistence';
 
 export type Action =
@@ -140,7 +140,7 @@ export const initialState: BoardState = {
   defaultHoleDiameter: 1,
   defaultTestPointDiameter: 0.75,
   backFlip: 'horizontal',
-  packageIndex: 1,
+  packageIndex: DEFAULT_PACKAGE_INDEX,
   packageRotation: 0,
 };
 
