@@ -81,10 +81,6 @@ function App() {
   // instead of running off the bottom of the page.
   const [fitToViewport, setFitToViewport] = useState(true);
   const [viewportFitMaxHeight, setViewportFitMaxHeight] = useState<number | null>(null);
-  // How far below the viewport top the board area naturally sits (i.e. right
-  // under the sticky header) — reused as its `position: sticky` offset so it
-  // stays put under the header instead of scrolling away with a long sidebar.
-  const [stickyTop, setStickyTop] = useState<number | null>(null);
   const boardAreaRef = useRef<HTMLElement | null>(null);
   // Pure view state: cosmetic mirroring of the back photo while tracing, kept
   // entirely separate from the geometric backFlip (which maps hole clicks
@@ -486,23 +482,17 @@ function App() {
   ]);
 
   useEffect(() => {
-    function recompute() {
-      const el = boardAreaRef.current;
-      if (!el) return;
-      // getBoundingClientRect() reflects the sticky offset once one's
-      // applied, so this stays stable rather than feeding back on itself.
-      const top = el.getBoundingClientRect().top;
-      setStickyTop(Math.max(0, top));
-      if (fitToViewport) {
-        setViewportFitMaxHeight(Math.max(200, window.innerHeight - top - 16));
-      }
-    }
-    recompute();
-    window.addEventListener('resize', recompute);
-    return () => window.removeEventListener('resize', recompute);
-    // Banners above the board area come and go with these, so recompute
-    // whenever one might have appeared or disappeared.
-  }, [fitToViewport, offer, currentOverlap, exportError, saveError, alignError]);
+    // The board area is sized by the layout (whatever the header, toolbar, and
+    // banners leave of the window), so its own height is the fit target — and
+    // a ResizeObserver catches every one of those changing, toolbar included.
+    const el = boardAreaRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      setViewportFitMaxHeight(Math.max(200, el.clientHeight));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div className="app">
@@ -601,216 +591,217 @@ function App() {
         onFindOverlaps={handleFindOverlaps}
       />
 
-      <main
-        className={`board-area${fitToViewport ? ' fit-viewport' : ''}`}
-        ref={boardAreaRef}
-        style={
-          {
-            ...(fitToViewport && viewportFitMaxHeight
-              ? { '--viewport-fit-max-height': `${viewportFitMaxHeight}px` }
-              : {}),
-            ...(stickyTop !== null ? { '--board-area-sticky-top': `${stickyTop}px` } : {}),
-          } as CSSProperties
-        }
-      >
-        {(['front', 'back'] as Side[]).map((side) => (
-          <BoardPanel
-            key={side}
-            side={side}
-            state={state}
-            onAddShot={handleAddShot}
-            showBackground={showBackground[side]}
-            layerVisibility={layerVisibility}
-            visualFlip={side === 'back' ? backVisualFlip : null}
-            onCanvasClick={handleCanvasClick}
-            onCanvasDoubleClick={handleCanvasDoubleClick}
-            onSelectTrace={(id) => dispatch({ type: 'SELECT', selection: { kind: 'trace', id } })}
-            onSelectVia={(id) => dispatch({ type: 'SELECT', selection: { kind: 'via', id } })}
-            onSelectPad={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
-            onSelectGroundPlane={(id) =>
-              dispatch({ type: 'SELECT', selection: { kind: 'groundplane', id } })
-            }
-            onMovePad={(id, dx, dy) => dispatch({ type: 'MOVE_PAD', id, dx, dy })}
-            padPick={state.padPick}
-            onTogglePadPick={(id) => dispatch({ type: 'TOGGLE_PAD_PICK', id })}
-            viaPick={state.viaPick}
-            onToggleViaPick={(id) => dispatch({ type: 'TOGGLE_VIA_PICK', id })}
-            onSelectComponent={(id) =>
-              dispatch({ type: 'SELECT', selection: { kind: 'component', id } })
-            }
-            onAlign={handleAlign}
-            onCyclePackage={(step) => dispatch({ type: 'CYCLE_PACKAGE', step })}
-            onRotatePackage={() => dispatch({ type: 'ROTATE_PACKAGE' })}
-            otherSideHover={holeHover && holeHover.side !== side ? holeHover.point : null}
-            // Only the side the cursor is actually on may clear the hover, so a
-            // mouseleave from the other panel can't wipe a live preview.
-            onHoverPoint={(hoverSide, point) =>
-              setHoleHover((prev) =>
-                point
-                  ? { side: hoverSide, point }
-                  : prev && prev.side === hoverSide
-                    ? null
-                    : prev,
-              )
-            }
-            overlayOpacity={overlayOpacity}
-            highlight={overlapHighlight}
-            follow={follow}
-            flash={flashTarget}
-            onHoverItem={setHoveredItem}
-          />
-        ))}
-      </main>
-
-      <aside className="sidebar">
-        <div className="sidebar-section">
-          <h3>Session</h3>
-          <p className="list-empty">
-            {!sessionKey
-              ? 'Upload an image to start autosaving.'
-              : savedAt
-                ? `Autosaved at ${new Date(savedAt).toLocaleTimeString()}. Re-upload the same images to pick up here.`
-                : 'Autosaves as you work. Photos are never stored — re-upload them to restore.'}
-          </p>
-          {sessionKey && savedAt && (
-            <button
-              type="button"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    'Discard the autosaved work for these images and clear the board?',
-                  )
-                ) {
-                  clearSession(sessionKey);
-                  offeredKeys.current.add(sessionKey);
-                  setSavedAt(null);
-                  dispatch({ type: 'RESET_BOARD' });
-                }
-              }}
-            >
-              Discard saved work
-            </button>
-          )}
-        </div>
-        {/* Scale is set once and then mostly left alone, so it collapses out of
-            the way of the lists you actually work in — but it starts open on a
-            board with no size yet, since nothing is measured correctly until
-            that's filled in. */}
-        <SidebarSection title="Scale" defaultOpen={!state.boardSize}>
-          <ScalePanel
-            unit={state.unit}
-            boardSize={state.boardSize}
-            defaultTraceWidth={state.defaultTraceWidth}
-            defaultViaDiameter={state.defaultViaDiameter}
-            defaultHoleDiameter={state.defaultHoleDiameter}
-            defaultTestPointDiameter={state.defaultTestPointDiameter}
-            backFlip={state.backFlip}
-            onSetUnit={(unit) => dispatch({ type: 'SET_UNIT', unit })}
-            onSetBoardSize={(boardSize) => dispatch({ type: 'SET_BOARD_SIZE', boardSize })}
-            onSetDefaultTraceWidth={(width) =>
-              dispatch({ type: 'SET_DEFAULT_TRACE_WIDTH', width })
-            }
-            onSetDefaultDiameter={(kind, diameter) =>
-              dispatch({ type: 'SET_DEFAULT_DIAMETER', kind, diameter })
-            }
-            onSetBackFlip={(flip) => dispatch({ type: 'SET_BACK_FLIP', flip })}
-            fitToViewport={fitToViewport}
-            onSetFitToViewport={setFitToViewport}
-            backVisualFlip={backVisualFlip}
-            onSetBackVisualFlip={(axis, value) =>
-              setBackVisualFlip((prev) => ({ ...prev, [axis]: value }))
-            }
-          />
-        </SidebarSection>
-        <SidebarSection title="Traces" count={state.traces.length}>
-          <TraceList
-            traces={state.traces}
-            selection={state.selection}
-            unit={state.unit}
-            defaultWidth={state.defaultTraceWidth}
-            onSelect={(id) => selectFromSidebar({ kind: 'trace', id })}
-            onRename={(id, label) => dispatch({ type: 'RENAME_TRACE', id, label })}
-            onSetWidth={(id, width) => dispatch({ type: 'SET_TRACE_WIDTH', id, width })}
-          />
-        </SidebarSection>
-        <SidebarSection title="Ground planes" count={state.groundPlanes.length}>
-          <GroundPlaneList
-            groundPlanes={state.groundPlanes}
-            selection={state.selection}
-            onSelect={(id) => selectFromSidebar({ kind: 'groundplane', id })}
-            onRename={(id, label) => dispatch({ type: 'RENAME_GROUND_PLANE', id, label })}
-          />
-        </SidebarSection>
-        <SidebarSection title="Pads" count={rectPads.length}>
-          <PadList
-            pads={rectPads}
-            selection={state.selection}
-            unit={state.unit}
-            scaleFor={(pad) => pxPerUnit(activeShotOf(state.images[pad.side]), state.boardSize, state.unit)}
-            onSelect={(id) => selectFromSidebar({ kind: 'pad', id })}
-            onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
-            onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
-            onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'pad', id })}
-          />
-        </SidebarSection>
-        <SidebarSection title="Test points" count={testPoints.length}>
-          <PadList
-            pads={testPoints}
-            selection={state.selection}
-            unit={state.unit}
-            scaleFor={(pad) => pxPerUnit(activeShotOf(state.images[pad.side]), state.boardSize, state.unit)}
-            onSelect={(id) => selectFromSidebar({ kind: 'pad', id })}
-            onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
-            onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
-            onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'pad', id })}
-          />
-        </SidebarSection>
-        <SidebarSection title="Components" count={state.components.length}>
-          <ComponentList
-            components={state.components}
-            pads={state.pads}
-            vias={state.vias}
-            selectedId={state.selection?.kind === 'component' ? state.selection.id : null}
-            padPick={state.padPick}
-            viaPick={state.viaPick}
-            onSelect={(id) => selectFromSidebar({ kind: 'component', id })}
-            onGroup={(label, refDes, notes, componentType, value) =>
-              dispatch({ type: 'ADD_COMPONENT', label, refDes, notes, componentType, value })
-            }
-            onClearPick={() => dispatch({ type: 'CANCEL_DRAFT' })}
-            onRename={(id, label) => dispatch({ type: 'RENAME_COMPONENT', id, label })}
-            onSetRefDes={(id, refDes) => dispatch({ type: 'SET_COMPONENT_REFDES', id, refDes })}
-            onSetNotes={(id, notes) => dispatch({ type: 'SET_COMPONENT_NOTES', id, notes })}
-            onSetType={(id, componentType) => dispatch({ type: 'SET_COMPONENT_TYPE', id, componentType })}
-            onSetValue={(id, value) => dispatch({ type: 'SET_COMPONENT_VALUE', id, value })}
-            onSetRole={(id, memberId, role) =>
-              dispatch({ type: 'SET_COMPONENT_ROLE', id, memberId, role })
-            }
-            onFocusMember={(kind, id) => setFocusedMember({ kind, id })}
-            onBlurMember={() => setFocusedMember(null)}
-          />
-        </SidebarSection>
-        {(['via', 'hole'] as const).map((kind) => (
-          <SidebarSection
-            key={kind}
-            title={kind === 'via' ? 'Vias' : 'Holes'}
-            count={state.vias.filter((v) => v.kind === kind).length}
-          >
-            <ViaList
-              vias={state.vias.filter((v) => v.kind === kind)}
-              kind={kind}
-              selection={state.selection}
-              unit={state.unit}
-              onSelect={(id) => selectFromSidebar({ kind: 'via', id })}
-              onRename={(id, label) => dispatch({ type: 'RENAME_VIA', id, label })}
-              onSetDiameter={(id, diameter) =>
-                dispatch({ type: 'SET_VIA_DIAMETER', id, diameter })
+      <div className="workspace">
+        <main
+          className={`board-area${fitToViewport ? ' fit-viewport' : ''}`}
+          ref={boardAreaRef}
+          style={
+            {
+              ...(fitToViewport && viewportFitMaxHeight
+                ? { '--viewport-fit-max-height': `${viewportFitMaxHeight}px` }
+                : {}),
+            } as CSSProperties
+          }
+        >
+          {(['front', 'back'] as Side[]).map((side) => (
+            <BoardPanel
+              key={side}
+              side={side}
+              state={state}
+              onAddShot={handleAddShot}
+              showBackground={showBackground[side]}
+              layerVisibility={layerVisibility}
+              visualFlip={side === 'back' ? backVisualFlip : null}
+              onCanvasClick={handleCanvasClick}
+              onCanvasDoubleClick={handleCanvasDoubleClick}
+              onSelectTrace={(id) => dispatch({ type: 'SELECT', selection: { kind: 'trace', id } })}
+              onSelectVia={(id) => dispatch({ type: 'SELECT', selection: { kind: 'via', id } })}
+              onSelectPad={(id) => dispatch({ type: 'SELECT', selection: { kind: 'pad', id } })}
+              onSelectGroundPlane={(id) =>
+                dispatch({ type: 'SELECT', selection: { kind: 'groundplane', id } })
               }
-              onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'via', id })}
+              onMovePad={(id, dx, dy) => dispatch({ type: 'MOVE_PAD', id, dx, dy })}
+              padPick={state.padPick}
+              onTogglePadPick={(id) => dispatch({ type: 'TOGGLE_PAD_PICK', id })}
+              viaPick={state.viaPick}
+              onToggleViaPick={(id) => dispatch({ type: 'TOGGLE_VIA_PICK', id })}
+              onSelectComponent={(id) =>
+                dispatch({ type: 'SELECT', selection: { kind: 'component', id } })
+              }
+              onAlign={handleAlign}
+              onCyclePackage={(step) => dispatch({ type: 'CYCLE_PACKAGE', step })}
+              onRotatePackage={() => dispatch({ type: 'ROTATE_PACKAGE' })}
+              otherSideHover={holeHover && holeHover.side !== side ? holeHover.point : null}
+              // Only the side the cursor is actually on may clear the hover, so a
+              // mouseleave from the other panel can't wipe a live preview.
+              onHoverPoint={(hoverSide, point) =>
+                setHoleHover((prev) =>
+                  point
+                    ? { side: hoverSide, point }
+                    : prev && prev.side === hoverSide
+                      ? null
+                      : prev,
+                )
+              }
+              overlayOpacity={overlayOpacity}
+              highlight={overlapHighlight}
+              follow={follow}
+              flash={flashTarget}
+              onHoverItem={setHoveredItem}
+            />
+          ))}
+        </main>
+
+        <aside className="sidebar">
+          <div className="sidebar-section">
+            <h3>Session</h3>
+            <p className="list-empty">
+              {!sessionKey
+                ? 'Upload an image to start autosaving.'
+                : savedAt
+                  ? `Autosaved at ${new Date(savedAt).toLocaleTimeString()}. Re-upload the same images to pick up here.`
+                  : 'Autosaves as you work. Photos are never stored — re-upload them to restore.'}
+            </p>
+            {sessionKey && savedAt && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'Discard the autosaved work for these images and clear the board?',
+                    )
+                  ) {
+                    clearSession(sessionKey);
+                    offeredKeys.current.add(sessionKey);
+                    setSavedAt(null);
+                    dispatch({ type: 'RESET_BOARD' });
+                  }
+                }}
+              >
+                Discard saved work
+              </button>
+            )}
+          </div>
+          {/* Scale is set once and then mostly left alone, so it collapses out of
+              the way of the lists you actually work in — but it starts open on a
+              board with no size yet, since nothing is measured correctly until
+              that's filled in. */}
+          <SidebarSection title="Scale" defaultOpen={!state.boardSize}>
+            <ScalePanel
+              unit={state.unit}
+              boardSize={state.boardSize}
+              defaultTraceWidth={state.defaultTraceWidth}
+              defaultViaDiameter={state.defaultViaDiameter}
+              defaultHoleDiameter={state.defaultHoleDiameter}
+              defaultTestPointDiameter={state.defaultTestPointDiameter}
+              backFlip={state.backFlip}
+              onSetUnit={(unit) => dispatch({ type: 'SET_UNIT', unit })}
+              onSetBoardSize={(boardSize) => dispatch({ type: 'SET_BOARD_SIZE', boardSize })}
+              onSetDefaultTraceWidth={(width) =>
+                dispatch({ type: 'SET_DEFAULT_TRACE_WIDTH', width })
+              }
+              onSetDefaultDiameter={(kind, diameter) =>
+                dispatch({ type: 'SET_DEFAULT_DIAMETER', kind, diameter })
+              }
+              onSetBackFlip={(flip) => dispatch({ type: 'SET_BACK_FLIP', flip })}
+              fitToViewport={fitToViewport}
+              onSetFitToViewport={setFitToViewport}
+              backVisualFlip={backVisualFlip}
+              onSetBackVisualFlip={(axis, value) =>
+                setBackVisualFlip((prev) => ({ ...prev, [axis]: value }))
+              }
             />
           </SidebarSection>
-        ))}
-      </aside>
+          <SidebarSection title="Traces" count={state.traces.length}>
+            <TraceList
+              traces={state.traces}
+              selection={state.selection}
+              unit={state.unit}
+              defaultWidth={state.defaultTraceWidth}
+              onSelect={(id) => selectFromSidebar({ kind: 'trace', id })}
+              onRename={(id, label) => dispatch({ type: 'RENAME_TRACE', id, label })}
+              onSetWidth={(id, width) => dispatch({ type: 'SET_TRACE_WIDTH', id, width })}
+            />
+          </SidebarSection>
+          <SidebarSection title="Ground planes" count={state.groundPlanes.length}>
+            <GroundPlaneList
+              groundPlanes={state.groundPlanes}
+              selection={state.selection}
+              onSelect={(id) => selectFromSidebar({ kind: 'groundplane', id })}
+              onRename={(id, label) => dispatch({ type: 'RENAME_GROUND_PLANE', id, label })}
+            />
+          </SidebarSection>
+          <SidebarSection title="Pads" count={rectPads.length}>
+            <PadList
+              pads={rectPads}
+              selection={state.selection}
+              unit={state.unit}
+              scaleFor={(pad) => pxPerUnit(activeShotOf(state.images[pad.side]), state.boardSize, state.unit)}
+              onSelect={(id) => selectFromSidebar({ kind: 'pad', id })}
+              onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
+              onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
+              onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'pad', id })}
+            />
+          </SidebarSection>
+          <SidebarSection title="Test points" count={testPoints.length}>
+            <PadList
+              pads={testPoints}
+              selection={state.selection}
+              unit={state.unit}
+              scaleFor={(pad) => pxPerUnit(activeShotOf(state.images[pad.side]), state.boardSize, state.unit)}
+              onSelect={(id) => selectFromSidebar({ kind: 'pad', id })}
+              onRename={(id, label) => dispatch({ type: 'RENAME_PAD', id, label })}
+              onSetDiameter={(id, diameter) => dispatch({ type: 'SET_PAD_DIAMETER', id, diameter })}
+              onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'pad', id })}
+            />
+          </SidebarSection>
+          <SidebarSection title="Components" count={state.components.length}>
+            <ComponentList
+              components={state.components}
+              pads={state.pads}
+              vias={state.vias}
+              selectedId={state.selection?.kind === 'component' ? state.selection.id : null}
+              padPick={state.padPick}
+              viaPick={state.viaPick}
+              onSelect={(id) => selectFromSidebar({ kind: 'component', id })}
+              onGroup={(label, refDes, notes, componentType, value) =>
+                dispatch({ type: 'ADD_COMPONENT', label, refDes, notes, componentType, value })
+              }
+              onClearPick={() => dispatch({ type: 'CANCEL_DRAFT' })}
+              onRename={(id, label) => dispatch({ type: 'RENAME_COMPONENT', id, label })}
+              onSetRefDes={(id, refDes) => dispatch({ type: 'SET_COMPONENT_REFDES', id, refDes })}
+              onSetNotes={(id, notes) => dispatch({ type: 'SET_COMPONENT_NOTES', id, notes })}
+              onSetType={(id, componentType) => dispatch({ type: 'SET_COMPONENT_TYPE', id, componentType })}
+              onSetValue={(id, value) => dispatch({ type: 'SET_COMPONENT_VALUE', id, value })}
+              onSetRole={(id, memberId, role) =>
+                dispatch({ type: 'SET_COMPONENT_ROLE', id, memberId, role })
+              }
+              onFocusMember={(kind, id) => setFocusedMember({ kind, id })}
+              onBlurMember={() => setFocusedMember(null)}
+            />
+          </SidebarSection>
+          {(['via', 'hole'] as const).map((kind) => (
+            <SidebarSection
+              key={kind}
+              title={kind === 'via' ? 'Vias' : 'Holes'}
+              count={state.vias.filter((v) => v.kind === kind).length}
+            >
+              <ViaList
+                vias={state.vias.filter((v) => v.kind === kind)}
+                kind={kind}
+                selection={state.selection}
+                unit={state.unit}
+                onSelect={(id) => selectFromSidebar({ kind: 'via', id })}
+                onRename={(id, label) => dispatch({ type: 'RENAME_VIA', id, label })}
+                onSetDiameter={(id, diameter) =>
+                  dispatch({ type: 'SET_VIA_DIAMETER', id, diameter })
+                }
+                onToggleGround={(id) => dispatch({ type: 'TOGGLE_GROUND', kind: 'via', id })}
+              />
+            </SidebarSection>
+          ))}
+        </aside>
+      </div>
 
       {aligning &&
         (() => {
