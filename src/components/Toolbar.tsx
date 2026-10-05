@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Tool } from '../types';
-import { FOOTPRINTS } from '../lib/packages';
+import { FOOTPRINT_GROUPS } from '../lib/packages';
 
 /** Series shorter than this aren't a series; the reducer enforces it too. */
 const MIN_SERIES = 2;
@@ -185,10 +185,14 @@ export function Toolbar({
               value={packageIndex}
               onChange={(e) => onSelectPackage(Number(e.target.value))}
             >
-              {FOOTPRINTS.map((p, i) => (
-                <option key={p.name} value={i}>
-                  {p.name}
-                </option>
+              {FOOTPRINT_GROUPS.map(({ group, items }) => (
+                <optgroup key={group} label={group}>
+                  {items.map(({ footprint, index }) => (
+                    <option key={footprint.name} value={index}>
+                      {footprint.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </label>

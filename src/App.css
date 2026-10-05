@@ -1,29 +1,41 @@
 .app {
+  /* The app fills the window and never scrolls as a page: the header, banners,
+     and toolbar stay put, and the board and sidebar below each scroll on their
+     own, so a long sidebar can't push the tools out of view. */
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100vh;
+  height: 100dvh;
+  box-sizing: border-box;
+  padding: 16px;
+}
+
+.app > * {
+  flex-shrink: 0;
+}
+
+.workspace {
   display: grid;
   /* The sidebar tracks the window: a wide screen can afford to keep each item
      on one line, and a narrow one gives the board back the space and lets the
      items wrap instead. */
   grid-template-columns: 1fr clamp(230px, 22vw, 400px);
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
-  min-height: 100vh;
-  padding: 16px;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .app-header {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  position: sticky;
-  top: 0;
+  /* Above the board and sidebar, so the visibility popover overlaps them. */
+  position: relative;
   z-index: 20;
-  background: color-mix(in srgb, var(--panel-bg) 80%, transparent);
-  backdrop-filter: blur(4px);
-  padding: 8px 0;
-  margin: -8px 0 0;
 }
 
 .clear-selection-button {
@@ -40,7 +52,6 @@
 }
 
 .export-error {
-  grid-column: 1 / -1;
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   border: 1px solid var(--danger);
@@ -132,7 +143,6 @@
 }
 
 .restore-banner {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -156,7 +166,6 @@
 }
 
 .toolbar {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -212,12 +221,9 @@
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   align-items: start;
-  /* The sidebar can run much longer than the board, which makes the page
-     scroll — keep the board pinned under the header instead of letting it
-     scroll away while there's still sidebar content in view. */
-  position: sticky;
-  top: var(--board-area-sticky-top, 0px);
-  align-self: start;
+  /* With fit-to-viewport off, a tall board scrolls here rather than the page. */
+  overflow: auto;
+  min-height: 0;
 }
 
 .board-panel {
@@ -486,6 +492,13 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.sidebar > * {
+  flex-shrink: 0;
 }
 
 .sidebar-section {

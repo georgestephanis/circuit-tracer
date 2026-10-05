@@ -57,13 +57,15 @@ npm run build   # production build (also type-checks)
    - **Test point** — one click drops a round pad at a standard 0.75 mm. It's
      a pad in every other respect: it merges with copper, can be labelled, and
      can be repeated into a series.
-   - **SMD package** — drops both pads of a common chip footprint in one
+   - **SMD package** — drops every pad of a common footprint in one
      click. See [SMD packages](#smd-packages).
 5. Everything you place appears in a collapsible sidebar section — Scale,
    Traces, Pads, Test points, Vias, Holes — the lists each with a count and
    their own scroll area. Rename items (e.g. give a trace a net name), set an
    exact width or diameter, flag ground, or click to select.
-   **Delete/Backspace** removes the selection. The sidebar widens and narrows
+   **Delete/Backspace** removes the selection. The app fits the window: the
+   header and toolbar stay at the top, and the sidebar scrolls on its own
+   without moving the board or the tools. The sidebar widens and narrows
    with the window, and list rows wrap to a second line rather than clip when
    it's narrow. Selecting an item — from either direction — scrolls its
    sidebar row into view if it's scrolled out of sight (this is a no-op if the
@@ -334,25 +336,35 @@ the same rendering that's shown inline.
 
 ## SMD packages
 
-The **SMD package** tool drops both pads of a two-pad chip footprint in a
-single click, sized from the board's real dimensions so it lands at true scale.
+The **SMD package** tool drops every pad of a common footprint in a single
+click, sized from the board's real dimensions so it lands at true scale.
 
-- **Scroll** over the board to step through the catalog — 0402, 0603, 0805,
-  1206, 1210, 2010, 2512 — or pick one from the toolbar dropdown.
+- **Scroll** over the board to step through the catalog, or pick one from the
+  toolbar dropdown, which groups it into sections:
+  - **Chip passives** — 01005, 0201, 0402, 0603, 0805, 1206, 1210, 1812, 2010,
+    2220, 2512
+  - **Polarized capacitors** — tantalum A–D, SMD electrolytic 4–8 mm
+  - **Diodes** — SOD-523, SOD-323, SOD-123, MiniMELF, SMA, SMB, SMC
+  - **SOT and power** — SC-70, SC-70-6, SOT-23(-5/-6), SOT-89, SOT-223, DPAK
+  - **Gull-wing ICs** — SOIC, MSOP, TSSOP, TQFP
+  - **QFN** — 3–5 mm, with exposed pad
+  - **Crystals** — 3225 4-pad, HC-49 SMD
+  - **Through-hole** — TO-92, TO-220, DIP, radial/axial
+- The tool starts on 0603.
 - **Right-click** to rotate the footprint a quarter turn. Chip parts are
   symmetrical, so that's the only orientation control needed to aim one along a
   trace.
 - The footprint previews under the cursor at true scale, so you can size it
   against the part outline in the photo before committing.
 
-The two pads are placed as ordinary rectangular pads — they merge with copper,
+The pads are placed as ordinary pads — they merge with copper,
 can be labelled and grounded, and can be deleted individually. Nothing records
 that they came from the same part.
 
 The dimensions are nominal hand-solder land patterns, good enough to identify a
 part on a photograph. They're **not** a substitute for a manufacturer's
-recommended footprint. The table is a plain array in `src/lib/packages.ts` —
-adding a package is a one-line change.
+recommended footprint. The catalog is a plain table in `src/lib/packages.ts` —
+adding a package is usually a one-line change.
 
 ## Ground
 
