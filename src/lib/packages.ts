@@ -153,8 +153,9 @@ function singleRow(
 
 /**
  * Four equal pads in a 2x2 grid, as on a tiny leadless or chip-scale part.
- * Numbered counter-clockwise from the top left; that is a convention, not a
- * claim about any particular part's pinout.
+ * Pin numbering convention: 1 = top-left, then 2 = bottom-left, 3 =
+ * bottom-right, 4 = top-right (with `y` increasing downward in this file).
+ * This is a convention, not a claim about any particular part's pinout.
  */
 function fourPad(
   name: string,
