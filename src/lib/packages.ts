@@ -128,6 +128,55 @@ function twoHole(
 }
 
 /**
+ * A single row of identical pads along the x axis, pin 1 at the left, e.g. a
+ * flat-flex (FPC) connector's contact row.
+ */
+function singleRow(
+  name: string,
+  pinCount: number,
+  pitch: number,
+  padWidth: number,
+  padLength: number,
+): Footprint {
+  const span = (pinCount - 1) * pitch;
+  return {
+    name,
+    pads: Array.from({ length: pinCount }, (_, i) => ({
+      dx: -span / 2 + i * pitch,
+      dy: 0,
+      width: padWidth,
+      height: padLength,
+      role: String(i + 1),
+    })),
+  };
+}
+
+/**
+ * Four equal pads in a 2x2 grid, as on a tiny leadless or chip-scale part.
+ * Numbered counter-clockwise from the top left; that is a convention, not a
+ * claim about any particular part's pinout.
+ */
+function fourPad(
+  name: string,
+  pitchX: number,
+  pitchY: number,
+  padWidth: number,
+  padHeight: number,
+): Footprint {
+  const x = pitchX / 2;
+  const y = pitchY / 2;
+  return {
+    name,
+    pads: [
+      [-x, -y],
+      [-x, y],
+      [x, y],
+      [x, -y],
+    ].map(([dx, dy], i) => ({ dx, dy, width: padWidth, height: padHeight, role: String(i + 1) })),
+  };
+}
+
+/**
  * A quad flat IC (QFN/QFP-style), pins counter-clockwise from pin 1 at the top
  * of the left side, with an optional square exposed pad in the middle.
  * `padLength` runs perpendicular to the body edge, `padWidth` along it.
@@ -324,6 +373,7 @@ const SECTIONS: { group: string; footprints: Footprint[] }[] = [
       quadFlat('QFN-20 (4 mm)', 20, 0.5, 3.9, 0.25, 0.8, 2.6),
       quadFlat('QFN-24 (4 mm)', 24, 0.5, 3.9, 0.25, 0.8, 2.6),
       quadFlat('QFN-32 (5 mm)', 32, 0.5, 4.9, 0.25, 0.8, 3.4),
+      quadFlat('QFN-40 (5 mm, 0.4 pitch)', 40, 0.4, 4.9, 0.2, 0.8, 3.6),
     ],
   },
   {
@@ -340,6 +390,26 @@ const SECTIONS: { group: string; footprints: Footprint[] }[] = [
         ],
       },
       twoPad('Crystal HC-49 SMD', 5.5, 2.0, 9.5),
+    ],
+  },
+  {
+    // Measured from an electronic shelf label; the pad sizes are what the
+    // copper looks like in a photo, not a package datasheet, and the parts'
+    // pinouts are not known, so the pin numbers are only a convention.
+    group: 'Tiny 4-pad',
+    footprints: [
+      fourPad('4-pad 0.7 x 0.5 mm (wide pads)', 0.74, 0.52, 0.4, 0.2),
+      fourPad('4-pad 0.6 x 0.7 mm (tall pads)', 0.62, 0.7, 0.22, 0.42),
+    ],
+  },
+  {
+    group: 'Connectors and magnetics',
+    footprints: [
+      // Fine-pitch flat-flex sockets (e-paper panels, small displays).
+      singleRow('FPC 0.5 mm, 24-pin', 24, 0.5, 0.3, 1.2),
+      singleRow('FPC 0.5 mm, 40-pin', 40, 0.5, 0.3, 1.2),
+      // A small shielded power inductor, as in an e-paper boost converter.
+      twoPad('Power inductor 3.4 mm', 1.4, 3.4, 2.2),
     ],
   },
   {

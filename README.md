@@ -347,8 +347,10 @@ click, sized from the board's real dimensions so it lands at true scale.
   - **Diodes** — SOD-523, SOD-323, SOD-123, MiniMELF, SMA, SMB, SMC
   - **SOT and power** — SC-70, SC-70-6, SOT-23(-5/-6), SOT-89, SOT-223, DPAK
   - **Gull-wing ICs** — SOIC, MSOP, TSSOP, TQFP
-  - **QFN** — 3–5 mm, with exposed pad
+  - **QFN** — 3–5 mm, with exposed pad (incl. 40-pin, 0.4 mm pitch)
   - **Crystals** — 3225 4-pad, HC-49 SMD
+  - **Tiny 4-pad** — two 2x2 pad layouts measured from a shelf-label board
+  - **Connectors and magnetics** — 0.5 mm FPC (24/40-pin), small power inductor
   - **Through-hole** — TO-92, TO-220, DIP, radial/axial
 - The tool starts on 0603.
 - **Right-click** to rotate the footprint a quarter turn. Chip parts are
