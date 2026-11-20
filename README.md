@@ -1,5 +1,7 @@
 # Circuit Board Tracer
 
+**[Try it in your browser →](https://georgestephanis.github.io/circuit-tracer/)** Nothing is uploaded; it all runs locally in the page.
+
 A browser-only tool for manually digitizing a two-sided circuit board: upload
 front/back photos, trace copper paths on each side by clicking points, mark the
 vias and holes that pass through the board, and export everything as a single
@@ -683,3 +685,7 @@ not an error or something dropped.
   list of `{member-id}:{role}` tokens, present only for members that actually
   have a role set. Its `<rect>` child has no `id`/`data-*` of its own — the
   group is the addressable element.
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).
