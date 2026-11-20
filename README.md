@@ -1,6 +1,6 @@
 # Circuit Board Tracer
 
-**[Try it in your browser →](https://georgestephanis.github.io/circuit-tracer/)** Nothing is uploaded; it all runs locally in the page.
+**[Try it in your browser →](https://georgestephanis.github.io/circuit-tracer/)** Your photos never leave your browser.
 
 A browser-only tool for manually digitizing a two-sided circuit board: upload
 front/back photos, trace copper paths on each side by clicking points, mark the
