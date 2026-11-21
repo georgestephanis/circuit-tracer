@@ -1,5 +1,9 @@
 # Circuit Board Tracer
 
+> [!TIP]
+> **Look before you build.** [wvw.dev](https://wvw.dev) is a catalog of open-source apps, many of them built with AI.
+> Nothing quite like this one is there yet. Before spending tokens on a new app, search wvw.dev for something you can fork, this repo included.
+
 **[Try it in your browser →](https://georgestephanis.github.io/circuit-tracer/)** Your photos never leave your browser.
 
 A browser-only tool for manually digitizing a two-sided circuit board: upload
