@@ -1,8 +1,11 @@
 # Circuit Board Tracer
 
 > [!TIP]
-> **Look before you build.** [wvw.dev](https://wvw.dev) is a catalog of open-source apps, many of them built with AI.
-> Nothing quite like this one is there yet. Before spending tokens on a new app, search wvw.dev for something you can fork, this repo included.
+> **Look before you build.** Similar open-source projects:
+>
+> - [PCB ReTrace](https://github.com/dev-lab/pcb-retrace): browser-based PCB reverse engineering from photos, AGPL-3.0 or commercial
+>
+> Before building your own tool, search [AlternativeTo](https://alternativeto.net) (filter to open source), [GitHub](https://github.com/search?type=repositories) and [wvw.dev](https://wvw.dev) for something to fork, this repo included.
 
 **[Try it in your browser →](https://georgestephanis.github.io/circuit-tracer/)** Your photos never leave your browser.
 
